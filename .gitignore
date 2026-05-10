@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.ipynb_checkpoints/
+
+# Data files (never commit raw data!)
+data/raw/
+data/processed/
+*.csv
+*.parquet
+!data_generation/sample_*.csv
+
+# Secrets
+.env
+*.pem
+credentials.json
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# dbt
+dbt_project/target/
+dbt_project/dbt_packages/
+dbt_project/logs/
+
+# Airflow
+airflow/logs/
+airflow/airflow.db
+airflow/airflow.cfg
+
+# ML artifacts
+ml/artifacts/
+*.pkl
+*.joblib
+# =============================================================================
+# Add these entries to your existing .gitignore at the project root
+# =============================================================================
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform variable files (contain secrets!)
+**/terraform.tfvars
+**/*.auto.tfvars
+
+# Terraform plan files
+*.tfplan
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files (used for local-only experiments)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

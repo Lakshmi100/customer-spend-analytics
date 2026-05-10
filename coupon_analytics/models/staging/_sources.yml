@@ -1,0 +1,72 @@
+version: 2
+
+sources:
+  - name: raw
+    description: "Raw data ingested from ABC Bank into Snowflake"
+    database: ABC_BANK_ANALYTICS
+    schema: RAW
+
+    tables:
+      - name: customers
+        description: "Tokenized, k-anonymized customer master from ABC Bank ingestion"
+        columns:
+          - name: customer_id
+            description: "Internal customer ID (ABC-XXXXXXXX format)"
+            data_tests:
+              - not_null
+              - unique
+          - name: customer_token
+            description: "SHA-256 token used as the analytics-layer identifier (no PII)"
+            data_tests:
+              - not_null
+              - unique
+          - name: persona_id
+            description: "Persona archetype P01-P20"
+            data_tests:
+              - not_null
+          - name: age_band
+            description: "K-anonymized age bucket (e.g., 25-34, 35-44)"
+          - name: income_band
+            description: "K-anonymized personal income bucket"
+          - name: family_status
+            description: "single, married_no_kids, married_with_kids, divorced, widowed"
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ['single', 'married_no_kids', 'married_with_kids', 'divorced', 'widowed']
+          - name: is_active
+            description: "Whether the account is currently active"
+
+      - name: transactions
+        description: "All customer card transactions, partitioned by year_month"
+        columns:
+          - name: transaction_id
+            description: "Unique transaction identifier"
+            data_tests:
+              - not_null
+              - unique
+          - name: customer_token
+            description: "Foreign key to customers.customer_token"
+            data_tests:
+              - not_null
+              - relationships:
+                  to: source('raw', 'customers')
+                  field: customer_token
+          - name: transaction_date
+            description: "Date of the transaction"
+            data_tests:
+              - not_null
+          - name: amount
+            description: "Transaction amount in USD (always positive)"
+            data_tests:
+              - not_null
+          - name: category
+            description: "Spend category (groceries, dining, etc.)"
+            data_tests:
+              - not_null
+          - name: channel
+            description: "online or in_store"
+            data_tests:
+              - accepted_values:
+                  arguments:
+                    values: ['online', 'in_store']

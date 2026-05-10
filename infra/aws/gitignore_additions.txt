@@ -1,0 +1,27 @@
+# =============================================================================
+# Add these entries to your existing .gitignore at the project root
+# =============================================================================
+
+# Terraform
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+
+# Terraform variable files (contain secrets!)
+**/terraform.tfvars
+**/*.auto.tfvars
+
+# Terraform plan files
+*.tfplan
+
+# Crash logs
+crash.log
+crash.*.log
+
+# Override files (used for local-only experiments)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json

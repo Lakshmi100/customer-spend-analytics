@@ -1,0 +1,75 @@
+version: 2
+
+models:
+  - name: customer_360
+    description: |
+      The central feature mart. One row per active customer with 35+ features
+      spanning RFM, demographics, category preferences, channel mix, and
+      recency signals. Direct input for ML segmentation and coupon ranking.
+    columns:
+      - name: customer_token
+        description: "Unique customer identifier (analytics-safe token)"
+        data_tests:
+          - not_null
+          - unique
+      - name: persona_id
+        description: "Persona archetype P01-P20"
+        data_tests:
+          - not_null
+      - name: total_spend
+        description: "Total spend across full transaction history"
+        data_tests:
+          - not_null
+      - name: rfm_total_score
+        description: "Sum of R + F + M quintile scores (3-15)"
+        data_tests:
+          - not_null
+      - name: top_category_1
+        description: "Customer's #1 spending category by total amount"
+        data_tests:
+          - not_null
+      - name: account_tenure_days
+        description: "Days since account was opened"
+        data_tests:
+          - not_null
+
+  - name: category_affinity
+    description: |
+      Per-customer × per-category affinity. Includes wallet share, population
+      share, and affinity_index (>1 = customer over-indexes on this category
+      relative to population). Powers the coupon recommendation ranker.
+    columns:
+      - name: customer_token
+        data_tests:
+          - not_null
+      - name: category
+        data_tests:
+          - not_null
+      - name: spend_share
+        data_tests:
+          - not_null
+      - name: affinity_index
+        data_tests:
+          - not_null
+
+  - name: customer_spend_trends
+    description: |
+      Monthly time-series view of customer spending. Includes month-over-month
+      change, rolling averages, lifetime baseline comparison, and spend regime
+      flags (spike, dip, normal). Used for momentum / churn features.
+    columns:
+      - name: customer_token
+        data_tests:
+          - not_null
+      - name: year_month
+        data_tests:
+          - not_null
+      - name: total_spend
+        data_tests:
+          - not_null
+      - name: spend_regime
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: ['spike', 'dip', 'normal']

@@ -1,0 +1,123 @@
+# Airflow stack for the Customer Spend Analytics pipeline.
+#
+# Services:
+#   postgres    — Airflow metadata database
+#   init        — one-shot DB migration + admin user creation
+#   webserver   — Airflow UI at http://localhost:8080
+#   scheduler   — runs DAGs on schedule
+#
+# Run:
+#   docker-compose up -d           # start in background
+#   docker-compose logs -f         # tail logs
+#   docker-compose down            # stop and remove containers
+#   docker-compose down -v         # ALSO wipe DB (full reset)
+#
+# Login: admin / admin
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: airflow_postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: airflow_init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &airflow_env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      AIRFLOW__WEBSERVER__SECRET_KEY: "local_dev_only_change_in_prod"
+      AIRFLOW__CORE__FERNET_KEY: "ZmDfcTF7_60GrrY167zsiPd67pEvs0aGOv2oasOM1Pg="
+      # PYTHONPATH so the DAG's BashOperator commands can import our modules
+      PYTHONPATH: "/opt/project:/opt/project/data_generation:/opt/project/ingestion:/opt/project/ml"
+      # Pass our Snowflake creds through to the DAG tasks
+      SNOWFLAKE_ACCOUNT: ${SNOWFLAKE_ACCOUNT}
+      SNOWFLAKE_USER: ${SNOWFLAKE_USER}
+      SNOWFLAKE_PASSWORD: ${SNOWFLAKE_PASSWORD}
+      SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE}
+      SNOWFLAKE_ROLE: ${SNOWFLAKE_ROLE}
+      SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE}
+      SNOWFLAKE_DBT_ROLE: ${SNOWFLAKE_DBT_ROLE}
+      SNOWFLAKE_DBT_WAREHOUSE: ${SNOWFLAKE_DBT_WAREHOUSE}
+      PII_SALT: ${PII_SALT}
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      # Project mount is now WRITABLE (no :ro) so generate_data can write
+      # data/raw/*.parquet output files. In production this would write to
+      # S3 instead of the local filesystem.
+      - ../:/opt/project
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin --password admin \
+          --firstname Lakshmi --lastname Admin \
+          --role Admin --email admin@example.com || true
+        echo "✓ Airflow initialized"
+
+  webserver:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: airflow_webserver
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment: *airflow_env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ../:/opt/project
+    command: airflow webserver
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: airflow_scheduler
+    depends_on:
+      init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+    environment: *airflow_env
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ../:/opt/project
+    command: airflow scheduler
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

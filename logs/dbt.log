@@ -1,0 +1,199 @@
+[0m00:32:14.343948 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x105a36f60>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106231100>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x106230e30>]}
+
+
+============================== 00:32:14.349888 | ae4f056b-7847-4970-aa02-7e82690cc7db ==============================
+[0m00:32:14.349888 [info ] [MainThread]: Running with dbt=1.11.8
+[0m00:32:14.351373 [debug] [MainThread]: running dbt with arguments {'debug': 'False', 'fail_fast': 'False', 'target_path': 'None', 'version_check': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'write_json': 'True', 'introspect': 'True', 'quiet': 'False', 'send_anonymous_usage_stats': 'True', 'invocation_command': 'dbt init coupon_analytics', 'cache_selected_only': 'False', 'partial_parse': 'True', 'empty': 'None', 'log_cache_events': 'False', 'use_colors': 'True', 'static_parser': 'True', 'indirect_selection': 'eager', 'printer_width': '80', 'log_format': 'default', 'warn_error': 'None', 'no_print': 'None', 'use_experimental_parser': 'False', 'profiles_dir': '/Users/yuvaraj/.dbt', 'log_path': 'logs'}
+[0m00:32:14.376892 [debug] [MainThread]: Starter project path: /Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/dbt/include/starter_project
+[0m00:32:14.388170 [info ] [MainThread]: 
+Your new dbt project "coupon_analytics" was created!
+
+For more information on how to configure the profiles.yml file,
+please consult the dbt documentation here:
+
+  https://docs.getdbt.com/docs/configure-your-profile
+
+One more thing:
+
+Need help? Don't hesitate to reach out to us via GitHub issues or on Slack:
+
+  https://community.getdbt.com/
+
+Happy modeling!
+
+[0m00:32:14.388821 [info ] [MainThread]: Setting up your profile.
+[0m00:32:14.391218 [error] [MainThread]: Encountered an error:
+while scanning for the next token
+found character '\t' that cannot start any token
+  in "/Users/yuvaraj/.dbt/profiles.yml", line 13, column 39
+[0m00:32:14.400103 [error] [MainThread]: Traceback (most recent call last):
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/dbt/cli/requires.py", line 182, in wrapper
+    result, success = func(*args, **kwargs)
+                      ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/dbt/cli/requires.py", line 128, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/dbt/cli/main.py", line 488, in init
+    results = task.run()
+              ^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/dbt/task/init.py", line 346, in run
+    self.setup_profile(profile_name)
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/dbt/task/init.py", line 248, in setup_profile
+    if not self.check_if_can_write_profile(profile_name=profile_name):
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/dbt/task/init.py", line 209, in check_if_can_write_profile
+    profiles = yaml.safe_load(f) or {}
+               ^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/__init__.py", line 125, in safe_load
+    return load(stream, SafeLoader)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/__init__.py", line 81, in load
+    return loader.get_single_data()
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/constructor.py", line 49, in get_single_data
+    node = self.get_single_node()
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 36, in get_single_node
+    document = self.compose_document()
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 55, in compose_document
+    node = self.compose_node(None, None)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 84, in compose_node
+    node = self.compose_mapping_node(anchor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 133, in compose_mapping_node
+    item_value = self.compose_node(node, item_key)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 84, in compose_node
+    node = self.compose_mapping_node(anchor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 133, in compose_mapping_node
+    item_value = self.compose_node(node, item_key)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 84, in compose_node
+    node = self.compose_mapping_node(anchor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 133, in compose_mapping_node
+    item_value = self.compose_node(node, item_key)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 84, in compose_node
+    node = self.compose_mapping_node(anchor)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/composer.py", line 127, in compose_mapping_node
+    while not self.check_event(MappingEndEvent):
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/parser.py", line 98, in check_event
+    self.current_event = self.state()
+                         ^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/parser.py", line 428, in parse_block_mapping_key
+    if self.check_token(KeyToken):
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/scanner.py", line 116, in check_token
+    self.fetch_more_tokens()
+  File "/Users/yuvaraj/Documents/customer-spend-analytics/.venv/lib/python3.12/site-packages/yaml/scanner.py", line 258, in fetch_more_tokens
+    raise ScannerError("while scanning for the next token", None,
+yaml.scanner.ScannerError: while scanning for the next token
+found character '\t' that cannot start any token
+  in "/Users/yuvaraj/.dbt/profiles.yml", line 13, column 39
+
+[0m00:32:14.409798 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": false, "command_wall_clock_time": 0.16505413, "process_in_blocks": "0", "process_kernel_time": 0.281741, "process_mem_max_rss": "102957056", "process_out_blocks": "0", "process_user_time": 1.953827}
+[0m00:32:14.410634 [debug] [MainThread]: Command `dbt init` failed at 00:32:14.410468 after 0.17 seconds
+[0m00:32:14.411203 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x105e470e0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x105e47920>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x1062311c0>]}
+[0m00:32:14.411767 [debug] [MainThread]: Flushing usage events
+[0m00:32:14.612674 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m00:51:57.319358 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10d932960>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10dafd160>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10dafce90>]}
+
+
+============================== 00:51:57.327799 | 6fbb41fc-da31-48bc-8168-bb90cef3e160 ==============================
+[0m00:51:57.327799 [info ] [MainThread]: Running with dbt=1.11.8
+[0m00:51:57.328659 [debug] [MainThread]: running dbt with arguments {'log_format': 'default', 'no_print': 'None', 'log_cache_events': 'False', 'version_check': 'True', 'log_path': 'logs', 'target_path': 'None', 'static_parser': 'True', 'indirect_selection': 'eager', 'warn_error': 'None', 'use_experimental_parser': 'False', 'partial_parse': 'True', 'debug': 'False', 'quiet': 'False', 'profiles_dir': '/Users/yuvaraj/.dbt', 'use_colors': 'True', 'introspect': 'True', 'cache_selected_only': 'False', 'send_anonymous_usage_stats': 'True', 'empty': 'None', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'write_json': 'True', 'fail_fast': 'False', 'printer_width': '80', 'invocation_command': 'dbt init coupon_analytics'}
+[0m00:51:57.355540 [info ] [MainThread]: A project called coupon_analytics already exists here.
+[0m00:51:57.359242 [debug] [MainThread]: Resource report: {"command_name": "init", "command_success": true, "command_wall_clock_time": 0.15693647, "process_in_blocks": "0", "process_kernel_time": 0.430787, "process_mem_max_rss": "103034880", "process_out_blocks": "0", "process_user_time": 2.210097}
+[0m00:51:57.360188 [debug] [MainThread]: Command `dbt init` succeeded at 00:51:57.359992 after 0.16 seconds
+[0m00:51:57.360809 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10d932960>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10da75820>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10da75880>]}
+[0m00:51:57.361588 [debug] [MainThread]: Flushing usage events
+[0m00:51:57.614663 [debug] [MainThread]: An error was encountered while trying to flush usage events
+[0m00:57:10.184923 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'start', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10f1e2e10>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10f8b4fb0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10f8b4bc0>]}
+
+
+============================== 00:57:10.192759 | 71b34609-2bdc-42e8-9612-2e93ce2b6d6c ==============================
+[0m00:57:10.192759 [info ] [MainThread]: Running with dbt=1.11.8
+[0m00:57:10.193853 [debug] [MainThread]: running dbt with arguments {'profiles_dir': '/Users/yuvaraj/.dbt', 'cache_selected_only': 'False', 'warn_error': 'None', 'debug': 'False', 'log_path': 'logs', 'printer_width': '80', 'log_format': 'default', 'invocation_command': 'dbt debug', 'fail_fast': 'False', 'log_cache_events': 'False', 'quiet': 'False', 'use_experimental_parser': 'False', 'indirect_selection': 'eager', 'no_print': 'None', 'introspect': 'True', 'version_check': 'True', 'use_colors': 'True', 'warn_error_options': 'WarnErrorOptionsV2(error=[], warn=[], silence=[])', 'send_anonymous_usage_stats': 'True', 'target_path': 'None', 'write_json': 'True', 'partial_parse': 'True', 'empty': 'None', 'static_parser': 'True'}
+[0m00:57:10.219548 [info ] [MainThread]: dbt version: 1.11.8
+[0m00:57:10.220165 [info ] [MainThread]: python version: 3.12.7
+[0m00:57:10.220673 [info ] [MainThread]: python path: /Users/yuvaraj/Documents/customer-spend-analytics/.venv/bin/python3
+[0m00:57:10.221326 [info ] [MainThread]: os info: macOS-10.16-x86_64-i386-64bit
+[0m00:57:15.520554 [debug] [MainThread]: Snowflake adapter: Setting snowflake.connector to ERROR (file logging only)
+[0m00:57:15.521211 [debug] [MainThread]: Snowflake adapter: Setting botocore to ERROR (file logging only)
+[0m00:57:15.521607 [debug] [MainThread]: Snowflake adapter: Setting boto3 to ERROR (file logging only)
+[0m00:57:15.611692 [info ] [MainThread]: Using profiles dir at /Users/yuvaraj/.dbt
+[0m00:57:15.612256 [info ] [MainThread]: Using profiles.yml file at /Users/yuvaraj/.dbt/profiles.yml
+[0m00:57:15.612676 [info ] [MainThread]: Using dbt_project.yml file at /Users/yuvaraj/Documents/customer-spend-analytics/dbt_project.yml
+[0m00:57:15.613526 [info ] [MainThread]: adapter type: snowflake
+[0m00:57:15.613957 [info ] [MainThread]: adapter version: 1.11.4
+[0m00:57:15.614399 [info ] [MainThread]: Configuration:
+[0m00:57:15.614926 [info ] [MainThread]:   profiles.yml file [[32mOK found and valid[0m]
+[0m00:57:15.615498 [info ] [MainThread]:   dbt_project.yml file [[31mERROR not found[0m]
+[0m00:57:15.616163 [info ] [MainThread]: Required dependencies:
+[0m00:57:15.616800 [debug] [MainThread]: Executing "git --help"
+[0m00:57:15.664979 [debug] [MainThread]: STDOUT: "b"usage: git [-v | --version] [-h | --help] [-C <path>] [-c <name>=<value>]\n           [--exec-path[=<path>]] [--html-path] [--man-path] [--info-path]\n           [-p | --paginate | -P | --no-pager] [--no-replace-objects] [--bare]\n           [--git-dir=<path>] [--work-tree=<path>] [--namespace=<name>]\n           [--super-prefix=<path>] [--config-env=<name>=<envvar>]\n           <command> [<args>]\n\nThese are common Git commands used in various situations:\n\nstart a working area (see also: git help tutorial)\n   clone     Clone a repository into a new directory\n   init      Create an empty Git repository or reinitialize an existing one\n\nwork on the current change (see also: git help everyday)\n   add       Add file contents to the index\n   mv        Move or rename a file, a directory, or a symlink\n   restore   Restore working tree files\n   rm        Remove files from the working tree and from the index\n\nexamine the history and state (see also: git help revisions)\n   bisect    Use binary search to find the commit that introduced a bug\n   diff      Show changes between commits, commit and working tree, etc\n   grep      Print lines matching a pattern\n   log       Show commit logs\n   show      Show various types of objects\n   status    Show the working tree status\n\ngrow, mark and tweak your common history\n   branch    List, create, or delete branches\n   commit    Record changes to the repository\n   merge     Join two or more development histories together\n   rebase    Reapply commits on top of another base tip\n   reset     Reset current HEAD to the specified state\n   switch    Switch branches\n   tag       Create, list, delete or verify a tag object signed with GPG\n\ncollaborate (see also: git help workflows)\n   fetch     Download objects and refs from another repository\n   pull      Fetch from and integrate with another repository or a local branch\n   push      Update remote refs along with associated objects\n\n'git help -a' and 'git help -g' list available subcommands and some\nconcept guides. See 'git help <command>' or 'git help <concept>'\nto read about a specific subcommand or concept.\nSee 'git help git' for an overview of the system.\n""
+[0m00:57:15.666093 [debug] [MainThread]: STDERR: "b''"
+[0m00:57:15.666648 [info ] [MainThread]:  - git [[32mOK found[0m]
+
+[0m00:57:15.667225 [info ] [MainThread]: Connection:
+[0m00:57:15.667790 [info ] [MainThread]:   account: LDNNUTO-MCC31917
+[0m00:57:15.668287 [info ] [MainThread]:   user: LAKSHMIT100
+[0m00:57:15.668774 [info ] [MainThread]:   database: ECOMMERCE_DB
+[0m00:57:15.669281 [info ] [MainThread]:   warehouse: COMPUTE_WH
+[0m00:57:15.669895 [info ] [MainThread]:   role: ACCOUNTADMIN
+[0m00:57:15.670489 [info ] [MainThread]:   schema: ANALYTICS
+[0m00:57:15.671022 [info ] [MainThread]:   authenticator: None
+[0m00:57:15.671557 [info ] [MainThread]:   oauth_client_id: None
+[0m00:57:15.672028 [info ] [MainThread]:   query_tag: None
+[0m00:57:15.672520 [info ] [MainThread]:   client_session_keep_alive: False
+[0m00:57:15.673231 [info ] [MainThread]:   host: None
+[0m00:57:15.673766 [info ] [MainThread]:   port: None
+[0m00:57:15.674233 [info ] [MainThread]:   proxy_host: None
+[0m00:57:15.674752 [info ] [MainThread]:   proxy_port: None
+[0m00:57:15.675254 [info ] [MainThread]:   protocol: None
+[0m00:57:15.675731 [info ] [MainThread]:   connect_retries: 1
+[0m00:57:15.676206 [info ] [MainThread]:   connect_timeout: None
+[0m00:57:15.676687 [info ] [MainThread]:   retry_on_database_errors: False
+[0m00:57:15.677156 [info ] [MainThread]:   retry_all: False
+[0m00:57:15.677628 [info ] [MainThread]:   insecure_mode: False
+[0m00:57:15.678102 [info ] [MainThread]:   reuse_connections: True
+[0m00:57:15.678573 [info ] [MainThread]:   s3_stage_vpce_dns_name: None
+[0m00:57:15.679044 [info ] [MainThread]:   platform_detection_timeout_seconds: 0.0
+[0m00:57:15.680120 [info ] [MainThread]: Registered adapter: snowflake=1.11.4
+[0m00:57:15.978675 [debug] [MainThread]: Acquiring new snowflake connection 'debug'
+[0m00:57:16.064611 [debug] [MainThread]: Using snowflake connection "debug"
+[0m00:57:16.065122 [debug] [MainThread]: On debug: select 1 as id
+[0m00:57:16.065530 [debug] [MainThread]: Opening a new connection, currently in state init
+[0m00:57:17.856532 [debug] [MainThread]: Snowflake adapter: Error running SQL: select 1 as id
+[0m00:57:17.857320 [debug] [MainThread]: Snowflake adapter: Rolling back transaction.
+[0m00:57:17.857988 [info ] [MainThread]:   Connection test: [[31mERROR[0m]
+
+[0m00:57:17.858664 [info ] [MainThread]: [31m2 checks failed:[0m
+[0m00:57:17.859166 [info ] [MainThread]: Project loading failed for the following reason:
+ project path </Users/yuvaraj/Documents/customer-spend-analytics/dbt_project.yml> not found
+
+[0m00:57:17.859669 [info ] [MainThread]: dbt was unable to connect to the specified database.
+The database returned the following error:
+
+  >Database Error
+  250001: Could not connect to Snowflake backend after 2 attempt(s).Aborting
+  Verify that the hostnames and port numbers in SYSTEM$ALLOWLIST are added to your firewall's allowed list.
+  To further troubleshoot your connection you may reference the following article: https://docs.snowflake.com/en/user-guide/client-connectivity-troubleshooting/overview.
+
+Check your database credentials and try again. For more information, visit:
+https://docs.getdbt.com/docs/configure-your-profile
+
+
+[0m00:57:17.863084 [debug] [MainThread]: Resource report: {"command_name": "debug", "command_success": false, "command_wall_clock_time": 7.8126483, "process_in_blocks": "0", "process_kernel_time": 0.803901, "process_mem_max_rss": "196886528", "process_out_blocks": "0", "process_user_time": 3.500077}
+[0m00:57:17.863946 [debug] [MainThread]: Command `dbt debug` failed at 00:57:17.863762 after 7.81 seconds
+[0m00:57:17.864566 [debug] [MainThread]: Connection 'debug' was left open.
+[0m00:57:17.865191 [debug] [MainThread]: On debug: No close available on handle
+[0m00:57:17.865834 [debug] [MainThread]: Sending event: {'category': 'dbt', 'action': 'invocation', 'label': 'end', 'context': [<snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x10f8b4fb0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x11f31a9f0>, <snowplow_tracker.self_describing_json.SelfDescribingJson object at 0x11ec18770>]}
+[0m00:57:17.866574 [debug] [MainThread]: Flushing usage events
+[0m00:57:18.073487 [debug] [MainThread]: An error was encountered while trying to flush usage events

@@ -1,0 +1,21 @@
+# Snowflake + dbt
+# We use ~= constraints (compatible release) so any 1.11.x patch works.
+# This matches the dbt 1.11.8 + dbt-snowflake 1.11.4 versions we use locally.
+snowflake-connector-python~=4.0.0
+dbt-core~=1.11.0
+dbt-snowflake~=1.11.0
+
+# Data + ML
+pandas~=2.2.0
+numpy~=1.26.0
+pyarrow~=18.0
+scikit-learn~=1.5.0
+joblib~=1.4
+
+# Utilities
+python-dotenv~=1.0
+faker~=30.0
+
+# Note: We deliberately DON'T install pyspark in the Airflow image.
+# In production, the spark_ingestion task would use SparkSubmitOperator
+# pointing at a real Spark cluster (EMR / Databricks / etc).

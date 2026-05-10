@@ -1,0 +1,86 @@
+version: 2
+
+models:
+  - name: int_customer_transactions
+    description: |
+      Customer-transaction join filtered to active customers.
+      The fact table foundation for downstream aggregations.
+      Grain: one row per transaction.
+    columns:
+      - name: transaction_id
+        description: "Unique transaction identifier"
+        data_tests:
+          - not_null
+          - unique
+      - name: customer_token
+        description: "Customer identifier (always corresponds to an active customer)"
+        data_tests:
+          - not_null
+      - name: amount
+        description: "Transaction amount in USD (always positive)"
+        data_tests:
+          - not_null
+
+  - name: int_monthly_spend_by_category
+    description: |
+      Spend aggregated by customer x year_month x category.
+      Used for time-series feature engineering and category preference detection.
+      Grain: one row per (customer_token, year_month, category).
+    columns:
+      - name: customer_token
+        data_tests:
+          - not_null
+      - name: year_month
+        data_tests:
+          - not_null
+      - name: category
+        data_tests:
+          - not_null
+      - name: total_spend
+        data_tests:
+          - not_null
+
+  - name: int_rfm_features
+    description: |
+      RFM (Recency, Frequency, Monetary) features per customer plus quintile scores.
+      The classical customer segmentation framework. Used directly as ML input.
+      Grain: one row per customer_token (active customers only).
+    columns:
+      - name: customer_token
+        description: "Unique customer identifier"
+        data_tests:
+          - not_null
+          - unique
+      - name: recency_days
+        description: "Days since the customer's most recent transaction"
+        data_tests:
+          - not_null
+      - name: frequency_total
+        description: "Total transactions across full history"
+        data_tests:
+          - not_null
+      - name: monetary_total
+        description: "Total spend across full history"
+        data_tests:
+          - not_null
+      - name: r_score
+        description: "Recency quintile (1-5, where 5 = most recent)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+      - name: f_score
+        description: "Frequency quintile (1-5, where 5 = most frequent)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]
+      - name: m_score
+        description: "Monetary quintile (1-5, where 5 = highest spend)"
+        data_tests:
+          - not_null
+          - accepted_values:
+              arguments:
+                values: [1, 2, 3, 4, 5]

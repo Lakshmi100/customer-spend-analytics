@@ -188,7 +188,7 @@ def main():
 
     parquet_path = OUTPUT_DIR / "customers.parquet"
     csv_path = OUTPUT_DIR / "customers.csv"
-    df.to_parquet(parquet_path, index=False)
+    df.to_parquet(parquet_path, index=False, coerce_timestamps='us')
     df.to_csv(csv_path, index=False)
 
     print(f"✓ Wrote {len(df)} customers to:")

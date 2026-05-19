@@ -300,7 +300,7 @@ def main():
     # Write parquet (full) and CSV sample (10K rows for inspection)
     parquet_path = OUTPUT_DIR / "transactions.parquet"
     csv_sample_path = OUTPUT_DIR / "transactions_sample.csv"
-    df.to_parquet(parquet_path, index=False)
+    df.to_parquet(parquet_path, index=False, coerce_timestamps='us')
     df.sample(min(10000, len(df)), random_state=SEED).to_csv(csv_sample_path, index=False)
 
     print(f"  - {parquet_path}")

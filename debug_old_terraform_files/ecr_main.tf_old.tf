@@ -1,25 +1,23 @@
 ###############################################################################
-# ECR module — Elastic Container Registry for Docker images.
+# ECR module — Elastic Container Registry for the FastAPI Docker image.
 #
-# Parameterized so the same module produces multiple repos:
-#   - api        (FastAPI image for Phase 3)
-#   - ingestion  (Lambda image for Phase 2)
+# This is created in Phase 1 so Phase 3 (ECS Fargate) has a place to push
+# the API container. Empty until then.
 #
-# force_delete = true: allow `terraform destroy` even when images are present.
+# Lifecycle policy keeps the most recent 10 image tags + untagged for 1 day,
+# which prevents storage cost from creeping up over many CI builds.
 ###############################################################################
 
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
-  repo_name   = "${local.name_prefix}-${var.repository_name}"
 }
 
-resource "aws_ecr_repository" "this" {
-  name                 = local.repo_name
+resource "aws_ecr_repository" "api" {
+  name                 = "${local.name_prefix}-api"
   image_tag_mutability = "MUTABLE"
-  force_delete         = true
 
   image_scanning_configuration {
-    scan_on_push = true
+    scan_on_push = true  # free vulnerability scan
   }
 
   encryption_configuration {
@@ -27,8 +25,8 @@ resource "aws_ecr_repository" "this" {
   }
 }
 
-resource "aws_ecr_lifecycle_policy" "this" {
-  repository = aws_ecr_repository.this.name
+resource "aws_ecr_lifecycle_policy" "api" {
+  repository = aws_ecr_repository.api.name
 
   policy = jsonencode({
     rules = [

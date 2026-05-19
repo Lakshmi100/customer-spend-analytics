@@ -1,8 +1,14 @@
 ###############################################################################
 # Storage module — three S3 buckets for the data pipeline.
 #
-# force_destroy = true: allows `terraform destroy` to remove non-empty buckets.
-# In production you'd set this to false to prevent accidental data loss.
+#   raw         Landing zone. PySpark/Lambda writes parquet here.
+#               Equivalent to your local data/raw/.
+#
+#   processed   After PII tokenization and partitioning.
+#               Equivalent to your local data/processed/.
+#
+#   artifacts   ML model files (.joblib), dbt run artifacts,
+#               coupon recommendations parquet, etc.
 ###############################################################################
 
 locals {
@@ -14,8 +20,7 @@ locals {
 ###############################################################################
 
 resource "aws_s3_bucket" "raw" {
-  bucket        = "${local.name_prefix}-raw-${var.aws_account_id}"
-  force_destroy = true
+  bucket = "${local.name_prefix}-raw-${var.aws_account_id}"
 }
 
 resource "aws_s3_bucket_versioning" "raw" {
@@ -38,6 +43,7 @@ resource "aws_s3_bucket_public_access_block" "raw" {
   restrict_public_buckets = true
 }
 
+# Lifecycle: clean up old versions after 30 days to avoid storage bloat
 resource "aws_s3_bucket_lifecycle_configuration" "raw" {
   bucket = aws_s3_bucket.raw.id
   rule {
@@ -53,8 +59,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "raw" {
 ###############################################################################
 
 resource "aws_s3_bucket" "processed" {
-  bucket        = "${local.name_prefix}-processed-${var.aws_account_id}"
-  force_destroy = true
+  bucket = "${local.name_prefix}-processed-${var.aws_account_id}"
 }
 
 resource "aws_s3_bucket_versioning" "processed" {
@@ -92,8 +97,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "processed" {
 ###############################################################################
 
 resource "aws_s3_bucket" "artifacts" {
-  bucket        = "${local.name_prefix}-artifacts-${var.aws_account_id}"
-  force_destroy = true
+  bucket = "${local.name_prefix}-artifacts-${var.aws_account_id}"
 }
 
 resource "aws_s3_bucket_versioning" "artifacts" {
@@ -116,6 +120,7 @@ resource "aws_s3_bucket_public_access_block" "artifacts" {
   restrict_public_buckets = true
 }
 
+# Artifacts: keep more history (90 days) since model artifacts are small
 resource "aws_s3_bucket_lifecycle_configuration" "artifacts" {
   bucket = aws_s3_bucket.artifacts.id
   rule {

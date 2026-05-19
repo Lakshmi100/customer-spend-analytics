@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in real values.
+# Note: most config comes from persistent stack outputs (see data.tf),
+# so this file is intentionally small.
+
+aws_region   = "us-east-1"
+project_name = "csa"
+environment  = "dev"
+owner        = "lakshmi"

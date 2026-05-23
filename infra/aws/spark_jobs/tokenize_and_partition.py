@@ -185,14 +185,33 @@ def transform_transactions(df, tokenize_udf):
     """
     Re-tokenize customer reference + add partition columns.
 
+    Accepts TWO schemas to support multiple upstream producers:
+      - Raw schema (local generator): has `customer_id`, no `customer_token`
+        → tokenize customer_id with our salt
+      - Delta schema (Lambda generator): already has `customer_token`
+        → trust it (came from our own Snowflake which holds our salted tokens)
+
     transaction_ts (timestamp) is NOT PII — kept as-is.
     """
-    out = (df
-        # Re-tokenize — overwrites any upstream customer_token
-        .withColumn("customer_token", tokenize_udf(F.col("customer_id")))
-        .drop("customer_id")
+    cols = set(df.columns)
 
-        # Partition columns for incremental Snowflake loads
+    if "customer_id" in cols:
+        # Raw producer: tokenize fresh
+        out = (df
+            .withColumn("customer_token", tokenize_udf(F.col("customer_id")))
+            .drop("customer_id")
+        )
+    elif "customer_token" in cols:
+        # Delta producer: already tokenized via our Snowflake lookup
+        out = df
+    else:
+        raise ValueError(
+            "Transactions input must contain 'customer_id' or 'customer_token'. "
+            f"Got columns: {sorted(cols)}"
+        )
+
+    # Add partition columns regardless of producer
+    out = (out
         .withColumn("year_month", F.date_format(F.col("transaction_date"), "yyyy-MM"))
         .withColumn("day",        F.date_format(F.col("transaction_date"), "yyyy-MM-dd"))
     )

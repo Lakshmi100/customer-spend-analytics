@@ -62,6 +62,15 @@ module "snowflake_loader" {
   # Other Snowflake settings (database, schema, warehouse, role, stage_name)
   # use the module's defaults — override here only if your setup differs.
 }
+
+module "data_libs_layer" {
+  source = "../../../modules/lambda_layer_data"
+
+  project_name     = var.project_name
+  environment      = var.environment
+  artifacts_bucket = local.artifacts_bucket
+}
+
 module "generate_daily_delta" {
   source = "../../../modules/lambda_generate_daily_delta"
 
@@ -72,4 +81,34 @@ module "generate_daily_delta" {
   raw_bucket_arn       = local.raw_bucket_arn            # arn
   artifacts_bucket     = local.artifacts_bucket   # ← add this line
   snowflake_secret_arn = local.snowflake_secret_arn      # already a local from earlier
+  data_libs_layer_arn = module.data_libs_layer.layer_arn
+}
+
+module "step_functions" {
+  source = "../../../modules/step_functions"
+
+  project_name   = var.project_name
+  environment    = var.environment
+  aws_region     = data.aws_region.current.name
+  aws_account_id = data.aws_caller_identity.current.account_id
+
+  # Lambda ARNs from other modules
+  delta_function_arn  = module.generate_daily_delta.function_arn
+  loader_function_arn = module.snowflake_loader.function_arn
+
+  # EMR Serverless config (from emr_serverless module)
+  emr_application_id     = module.emr_serverless.application_id
+  emr_execution_role_arn = module.emr_serverless.execution_role_arn
+  emr_log_group          = module.emr_serverless.log_group_name
+
+  # The Spark entry point lives in artifacts S3 (uploaded by run_emr_job.sh
+  # previously; we'll formalize that upload as Terraform-managed later if needed)
+  spark_entry_point = "s3://${local.artifacts_bucket}/spark_jobs/tokenize_and_partition.py"
+
+  # S3 buckets
+  raw_bucket       = local.raw_bucket
+  processed_bucket = local.processed_bucket
+
+  # Secrets
+  pii_salt_secret_arn = data.terraform_remote_state.persistent.outputs.pii_salt_secret_arn
 }

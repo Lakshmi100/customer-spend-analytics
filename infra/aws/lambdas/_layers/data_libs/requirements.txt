@@ -1,0 +1,11 @@
+# Heavy data-library deps shared across multiple Lambdas.
+# These live in a Lambda layer so individual function packages stay slim.
+#
+# This requirements file is used ONLY for building the layer.
+# Individual Lambdas declare lightweight deps in their own requirements.txt.
+
+pandas==2.2.3
+pyarrow==18.1.0
+Faker==33.1.0
+# numpy is a pandas transitive dep — pinning explicitly for reproducibility
+numpy==2.2.6

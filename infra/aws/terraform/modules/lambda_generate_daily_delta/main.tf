@@ -43,9 +43,27 @@ resource "null_resource" "build_package" {
 
       # Upload the zip to S3 (artifacts bucket) for Lambda to read.
       # Direct-upload Lambda limit is 70 MB; S3-mediated limit is 250 MB.
-      aws s3 cp ${local.package_path} s3://${var.artifacts_bucket}/lambda_packages/generate_daily_delta.zip
+      aws s3 cp ${local.source_dir}/handler.py s3://${var.artifacts_bucket}/lambda_packages/generate_daily_delta.zip
     EOT
   }
+}
+
+###############################################################################
+# Track the S3-uploaded zip as a real Terraform resource. This eliminates
+# the provisioner-side-effect blind spot — Lambda can't be created until
+# Terraform confirms the S3 object exists (not just that the provisioner exited).
+###############################################################################
+
+resource "aws_s3_object" "lambda_package" {
+  bucket = var.artifacts_bucket
+  key    = "lambda_packages/generate_daily_delta.zip"
+  source = local.package_path
+
+  # Hash the input handler.py (exists at plan time) — not the output zip
+  # (only exists after the provisioner runs). Same pattern as the layer module.
+  etag = filemd5("${local.source_dir}/handler.py")
+
+  depends_on = [null_resource.build_package]
 }
 
 
@@ -139,8 +157,9 @@ resource "aws_lambda_function" "this" {
   role          = aws_iam_role.lambda.arn
 
   # Reference the S3-uploaded zip (allows up to 250 MB compressed).
-  s3_bucket        = var.artifacts_bucket
-  s3_key           = "lambda_packages/generate_daily_delta.zip"
+  s3_bucket = aws_s3_object.lambda_package.bucket
+  s3_key    = aws_s3_object.lambda_package.key
+
   source_code_hash = null_resource.build_package.triggers.handler_hash
 
   handler       = "handler.lambda_handler"
@@ -149,6 +168,7 @@ resource "aws_lambda_function" "this" {
   timeout       = 120
   memory_size   = 512
 
+  layers = [var.data_libs_layer_arn]
 
   environment {
     variables = {
@@ -162,7 +182,7 @@ resource "aws_lambda_function" "this" {
   }
 
   depends_on = [
-    null_resource.build_package,
+    aws_s3_object.lambda_package,         # ← changed from null_resource.build_package
     aws_iam_role_policy.secrets_read,
     aws_iam_role_policy.raw_write,
     aws_iam_role_policy.logs_write,

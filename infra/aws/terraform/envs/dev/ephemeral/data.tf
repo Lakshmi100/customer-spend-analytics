@@ -12,6 +12,9 @@
 # fails to read.
 ###############################################################################
 
+data "aws_caller_identity" "current" {}
+data "aws_region" "current" {}
+
 data "terraform_remote_state" "persistent" {
   backend = "s3"
   config = {

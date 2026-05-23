@@ -45,3 +45,8 @@ variable "artifacts_bucket" {
   description = "S3 bucket name to upload the Lambda zip into"
   type        = string
 }
+
+variable "data_libs_layer_arn" {
+  description = "ARN of the data_libs Lambda layer (pandas + pyarrow + numpy + Faker)"
+  type        = string
+}

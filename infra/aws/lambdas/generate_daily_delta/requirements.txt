@@ -1,7 +1,8 @@
-# Snowflake connector for reading existing customer/persona data
-snowflake-connector-python==3.13.2
+# Slim requirements: pandas/pyarrow/numpy/Faker come from the data_libs layer.
+# This Lambda only needs the Snowflake connector inline.
+#
+# Total unzipped size with this slim install: ~30 MB (snowflake-connector +
+# its transitive deps cryptography, pyOpenSSL, etc.). Well under the 250 MB
+# function cap; pandas+pyarrow live in the layer's separate 250 MB allowance.
 
-# Pandas + Faker for synthetic data + parquet writing
-pandas==2.2.3
-pyarrow==18.1.0
-Faker==33.1.0
+snowflake-connector-python==3.13.2

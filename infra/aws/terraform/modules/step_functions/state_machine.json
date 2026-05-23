@@ -1,0 +1,132 @@
+{
+  "Comment": "csa daily pipeline: generate delta -> EMR Spark tokenize -> Snowflake load. Each step retries once on transient errors. Inputs: { ingest_date?: 'YYYY-MM-DD' }",
+  "StartAt": "GenerateDelta",
+  "TimeoutSeconds": 1800,
+  "States": {
+    "GenerateDelta": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${delta_function_arn}",
+        "Payload.$": "$"
+      },
+      "ResultSelector": {
+        "ingest_date.$": "$.Payload.ingest_date",
+        "new_customers.$": "$.Payload.new_customers",
+        "new_transactions.$": "$.Payload.new_transactions"
+      },
+      "ResultPath": "$.delta",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 5,
+          "MaxAttempts": 1,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailed"
+        }
+      ],
+      "Next": "TokenizeWithSpark"
+    },
+
+    "TokenizeWithSpark": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::emr-serverless:startJobRun.sync",
+      "Parameters": {
+        "ApplicationId": "${emr_application_id}",
+        "ExecutionRoleArn": "${emr_execution_role_arn}",
+        "Name.$": "States.Format('tokenize-{}', $.delta.ingest_date)",
+        "JobDriver": {
+          "SparkSubmit": {
+            "EntryPoint": "${spark_entry_point}",
+            "EntryPointArguments.$": "States.Array('--raw-bucket', '${raw_bucket}', '--processed-bucket', '${processed_bucket}', '--pii-salt-secret-arn', '${pii_salt_secret_arn}', '--ingest-date', $.delta.ingest_date, '--region', '${aws_region}')",
+            "SparkSubmitParameters": "--conf spark.hadoop.fs.s3a.fast.upload=true --conf spark.sql.parquet.fs.optimized.committer.optimization-enabled=true --conf spark.executor.memory=4g --conf spark.driver.memory=2g"
+          }
+        },
+        "ConfigurationOverrides": {
+          "MonitoringConfiguration": {
+            "CloudWatchLoggingConfiguration": {
+              "Enabled": true,
+              "LogGroupName": "${emr_log_group}"
+            }
+          }
+        }
+      },
+      "ResultPath": "$.spark",
+      "Retry": [
+        {
+          "ErrorEquals": ["EmrServerless.ResourceNotFoundException", "EmrServerless.InternalServerException"],
+          "IntervalSeconds": 30,
+          "MaxAttempts": 1,
+          "BackoffRate": 1.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailed"
+        }
+      ],
+      "Next": "LoadToSnowflake"
+    },
+
+    "LoadToSnowflake": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${loader_function_arn}",
+        "Payload": {
+          "ingest_date.$": "$.delta.ingest_date"
+        }
+      },
+      "ResultSelector": {
+        "customers_loaded.$": "$.Payload.customers_loaded",
+        "transactions_loaded.$": "$.Payload.transactions_loaded",
+        "transactions_distinct_days.$": "$.Payload.transactions_distinct_days"
+      },
+      "ResultPath": "$.snowflake",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.TooManyRequestsException",
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 1,
+          "BackoffRate": 2.0
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "ResultPath": "$.error",
+          "Next": "PipelineFailed"
+        }
+      ],
+      "Next": "PipelineSucceeded"
+    },
+
+    "PipelineSucceeded": {
+      "Type": "Succeed"
+    },
+
+    "PipelineFailed": {
+      "Type": "Fail",
+      "Cause": "csa pipeline failed - inspect execution history in the AWS Step Functions console for the failed state and error details.",
+      "Error": "csaPipelineFailure"
+    }
+  }
+}

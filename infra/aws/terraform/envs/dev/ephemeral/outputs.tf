@@ -87,3 +87,25 @@ output "delta_generator_function_arn" {
 output "delta_generator_log_group" {
   value = module.generate_daily_delta.log_group_name
 }
+
+output "data_libs_layer_arn" {
+  description = "Lambda layer ARN providing pandas + pyarrow + numpy + Faker"
+  value       = module.data_libs_layer.layer_arn
+}
+
+output "data_libs_layer_version" {
+  value = module.data_libs_layer.layer_version
+}
+
+output "pipeline_state_machine_arn" {
+  description = "Step Functions state machine ARN (use in start-execution)"
+  value       = module.step_functions.state_machine_arn
+}
+
+output "pipeline_state_machine_name" {
+  value = module.step_functions.state_machine_name
+}
+
+output "pipeline_log_group" {
+  value = module.step_functions.log_group_name
+}

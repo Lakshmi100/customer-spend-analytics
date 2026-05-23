@@ -528,3 +528,86 @@ MIT — see `LICENSE` file.
 - PII tokenization patterns follow GLBA / GDPR-aligned k-anonymity guidance
 - dbt model naming follows the Kimball-inspired staging/intermediate/marts
   convention recommended by dbt Labs
+
+
+## AWS Phase 2 — Multi-cloud Daily Delta Pipeline
+
+Architecture: orchestrated daily pipeline running on AWS, with the same
+PySpark + dbt + Snowflake stack as the local version but now production-grade:
+
+[delta generator Lambda] → [EMR Serverless Spark] → [Snowflake loader Lambda]
+                ↑                ↑                          ↑
+                └──────── orchestrated by Step Functions ──┘
+
+### Components
+
+- **`generate_daily_delta` Lambda** (Python 3.12 + Lambda Layer with pandas/pyarrow/numpy/Faker)
+  - Looks up existing customers from Snowflake (RAW.CUSTOMERS) — persona-driven
+  - Generates daily synthetic delta: 0-5 new customers, ~50 transactions
+  - Writes raw PII parquet to s3://csa-dev-raw/.../ingest_date={today}/
+
+- **`tokenize_and_partition.py` on EMR Serverless** (PySpark)
+  - Re-tokenizes customer_id → customer_token with salted SHA-256
+  - K-anonymity: bands age, income, household_income, zip prefix
+  - Fail-loud PII guard prevents silent PII leaks into processed layer
+  - Writes partitioned parquet to s3://csa-dev-processed/transactions/year_month=.../day=.../
+
+- **`snowflake_loader` Lambda**
+  - Reads tokenized parquet via Snowflake STORAGE INTEGRATION (cross-account IAM trust + external ID)
+  - TRUNCATE + COPY INTO with METADATA$FILENAME path extraction for partition columns
+  - Idempotent design (verified empirically)
+
+- **Step Functions** (Standard, manual trigger)
+  - `.sync` integration on EMR Serverless waits for Spark to finish before next step
+  - Retry-once with exponential backoff on transient errors
+  - Catch handler routes any failure to PipelineFailed terminal state
+
+### Cross-cloud architecture
+
+The whole pipeline ports cleanly to GCP — equivalent services map as:
+  - S3 → Cloud Storage
+  - Lambda → Cloud Functions or Cloud Run
+  - EMR Serverless → Dataproc Serverless
+  - Step Functions → Cloud Workflows
+  - Secrets Manager → Secret Manager
+  - Snowflake → unchanged (same Snowflake cloud-region)
+
+GCP port handoff guide will be generated in the wrap-up session.
+
+### Known limitations (to fix)
+
+1. **Customer load is full-replace, not append.** The snowflake_loader currently
+   TRUNCATEs RAW.CUSTOMERS on every run and COPYs from today's ingest_date
+   partition. For daily incremental loads where only a few customers change
+   per day, this loses prior days' customers. The proper pattern is
+   append-with-dedupe (Type 1 SCD): MERGE on customer_token, keeping the most
+   recent record. Planned fix for next session.
+
+2. **Spark script in S3 is not Terraform-managed.** Currently uploaded via
+   spark_jobs/upload_to_s3.sh. A clean ephemeral-destroy/apply doesn't restore
+   it; the file lives in the persistent S3 bucket independently. Should be
+   wrapped in aws_s3_object for proper Terraform tracking.
+
+3. **No EventBridge scheduling yet.** Pipeline is manual-trigger today.
+   Adding a daily 8am UTC cron schedule via EventBridge is a single resource
+   away — planned alongside the customer-load fix.
+
+### War stories (debugging lessons worth keeping)
+
+- **The dbt year_month NULL bug:** local pipeline caught Spark's Hive-style
+  partition columns missing from parquet content (path-only)
+- **AWS variant of same bug:** Snowflake's COPY INTO doesn't auto-reconstruct
+  partition columns; fixed with METADATA$FILENAME regex extraction
+- **Lambda packaging size cliff:** 70MB direct → 250MB via S3 → 250MB unzipped
+  cap → layers separate big deps with their own 250MB cap → pyarrow pruning
+- **Terraform provisioner side-effect blindness:** local-exec aws s3 cp
+  completes before S3 is globally consistent; wrap in aws_s3_object resource
+  to guarantee dependency ordering
+- **PII guard caught its own config flaw:** customer_token in PII blocklist
+  was a false positive — the column was re-overwritten with our safe token
+  before the guard checked. Same name, different identity, different trust
+  level
+- **Multi-producer schema drift:** local generator produces raw customer_id;
+  Lambda delta generator produces customer_token. Spark transformation
+  needed to handle both — added schema detection with explicit ValueError
+  if neither column present

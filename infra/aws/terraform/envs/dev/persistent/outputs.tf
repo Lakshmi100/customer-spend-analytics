@@ -81,6 +81,17 @@ output "ecr_ingestion_repository_url" {
   value = module.ecr_ingestion.repository_url
 }
 
+output "snowflake_storage_role_arn" {
+  description = "IAM role ARN for Snowflake STORAGE INTEGRATION"
+  value       = module.snowflake_storage.role_arn
+}
+
+output "snowflake_handshake_stage" {
+  description = "bootstrap (placeholder trust) | active (Snowflake trust patched)"
+  value       = module.snowflake_storage.handshake_stage
+  sensitive   = true
+}
+
 # Quick-reference summary
 output "_summary" {
   value = <<-EOT

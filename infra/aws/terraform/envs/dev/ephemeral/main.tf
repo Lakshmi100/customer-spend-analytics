@@ -51,3 +51,25 @@ module "emr_serverless" {
 #   module "lambda_snowflake_loader" — triggers Snowflake COPY INTO
 #   module "step_functions"          — orchestrates the pipeline
 ###############################################################################
+
+module "snowflake_loader" {
+  source = "../../../modules/lambda_snowflake_loader"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  snowflake_secret_arn = local.snowflake_secret_arn
+  # Other Snowflake settings (database, schema, warehouse, role, stage_name)
+  # use the module's defaults — override here only if your setup differs.
+}
+module "generate_daily_delta" {
+  source = "../../../modules/lambda_generate_daily_delta"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  raw_bucket           = local.raw_bucket                # name (assumes exists in locals)
+  raw_bucket_arn       = local.raw_bucket_arn            # arn
+  artifacts_bucket     = local.artifacts_bucket   # ← add this line
+  snowflake_secret_arn = local.snowflake_secret_arn      # already a local from earlier
+}

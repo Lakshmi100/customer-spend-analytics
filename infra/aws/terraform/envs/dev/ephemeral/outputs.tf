@@ -59,3 +59,31 @@ output "_summary" {
 
   EOT
 }
+
+output "snowflake_loader_function_name" {
+  description = "Snowflake loader Lambda function name"
+  value       = module.snowflake_loader.function_name
+}
+
+output "snowflake_loader_function_arn" {
+  description = "Snowflake loader Lambda function ARN (for Step Functions)"
+  value       = module.snowflake_loader.function_arn
+}
+
+output "snowflake_loader_log_group" {
+  description = "CloudWatch log group for the Snowflake loader"
+  value       = module.snowflake_loader.log_group_name
+}
+
+output "delta_generator_function_name" {
+  value = module.generate_daily_delta.function_name
+}
+
+output "delta_generator_function_arn" {
+  description = "Use in Step Functions Resource field"
+  value       = module.generate_daily_delta.function_arn
+}
+
+output "delta_generator_log_group" {
+  value = module.generate_daily_delta.log_group_name
+}

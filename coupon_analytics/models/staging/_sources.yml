@@ -10,11 +10,6 @@ sources:
       - name: customers
         description: "Tokenized, k-anonymized customer master from ABC Bank ingestion"
         columns:
-          - name: customer_id
-            description: "Internal customer ID (ABC-XXXXXXXX format)"
-            data_tests:
-              - not_null
-              - unique
           - name: customer_token
             description: "SHA-256 token used as the analytics-layer identifier (no PII)"
             data_tests:

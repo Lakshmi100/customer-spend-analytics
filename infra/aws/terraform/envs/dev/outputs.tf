@@ -87,3 +87,13 @@ output "_summary" {
 
   EOT
 }
+
+output "snowflake_storage_role_arn" {
+  description = "IAM role ARN for Snowflake STORAGE INTEGRATION"
+  value       = module.snowflake_storage.role_arn
+}
+
+output "snowflake_handshake_stage" {
+  description = "bootstrap (placeholder trust) | active (Snowflake trust patched)"
+  value       = module.snowflake_storage.handshake_stage
+}

@@ -1,0 +1,4 @@
+# snowflake-connector-python brings the connector + transitive deps
+# (cryptography, pyOpenSSL, etc.) into the Lambda layer/package.
+# Pinning to a current 3.x version known to be Python 3.12 compatible.
+snowflake-connector-python==3.13.2

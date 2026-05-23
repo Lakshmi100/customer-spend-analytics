@@ -1,0 +1,7 @@
+# Snowflake connector for reading existing customer/persona data
+snowflake-connector-python==3.13.2
+
+# Pandas + Faker for synthetic data + parquet writing
+pandas==2.2.3
+pyarrow==18.1.0
+Faker==33.1.0

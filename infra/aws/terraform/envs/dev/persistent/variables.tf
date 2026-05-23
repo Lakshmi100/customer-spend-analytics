@@ -75,3 +75,17 @@ variable "pii_salt" {
   type      = string
   sensitive = true
 }
+
+
+variable "snowflake_iam_user_arn" {
+  description = "Snowflake's IAM user ARN from DESC INTEGRATION (empty on bootstrap)"
+  type        = string
+  default     = ""
+}
+
+variable "snowflake_external_id" {
+  description = "Snowflake's external ID from DESC INTEGRATION (empty on bootstrap)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}

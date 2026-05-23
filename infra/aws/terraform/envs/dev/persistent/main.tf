@@ -90,3 +90,18 @@ module "ecr_ingestion" {
   environment     = var.environment
   repository_name = "ingestion"
 }
+
+module "snowflake_storage" {
+  source = "../../../modules/snowflake_storage"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  processed_bucket_arn = module.storage.processed_bucket_arn
+
+  # These two start empty on the first apply (bootstrap mode).
+  # After Step 2 in Snowflake (CREATE STORAGE INTEGRATION + DESC),
+  # populate them in terraform.tfvars, then apply again to patch trust.
+  snowflake_iam_user_arn = var.snowflake_iam_user_arn
+  snowflake_external_id  = var.snowflake_external_id
+}

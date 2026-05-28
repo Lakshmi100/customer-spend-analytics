@@ -103,7 +103,7 @@ module "step_functions" {
 
   # The Spark entry point lives in artifacts S3 (uploaded by run_emr_job.sh
   # previously; we'll formalize that upload as Terraform-managed later if needed)
-  spark_entry_point = "s3://${local.artifacts_bucket}/spark_jobs/tokenize_and_partition.py"
+  spark_entry_point = data.terraform_remote_state.persistent.outputs.spark_tokenize_script_uri
 
   # S3 buckets
   raw_bucket       = local.raw_bucket
@@ -111,4 +111,17 @@ module "step_functions" {
 
   # Secrets
   pii_salt_secret_arn = data.terraform_remote_state.persistent.outputs.pii_salt_secret_arn
+}
+
+module "daily_schedule" {
+  source = "../../../modules/eventbridge_schedule"
+
+  project_name = var.project_name
+  environment  = var.environment
+
+  state_machine_arn = module.step_functions.state_machine_arn
+
+  # Defaults give 06:00 UTC daily, enabled. Override here if needed:
+  # schedule_expression = "cron(0 6 * * ? *)"
+  # rule_enabled        = true
 }

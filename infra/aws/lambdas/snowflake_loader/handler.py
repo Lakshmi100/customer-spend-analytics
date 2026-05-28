@@ -5,26 +5,31 @@ Triggered by Step Functions (or direct invocation for testing). Loads
 EMR-tokenized data from S3 into Snowflake RAW tables via COPY INTO
 through the storage integration handshake.
 
-Idempotent: every invocation TRUNCATEs then COPYs, so running twice
-produces the same final state. Same input -> same output.
+LOAD PATTERNS (different for each table by design):
+  - CUSTOMERS  : MERGE (Type 1 SCD)
+                 - Customers are slowly-changing dimensions; most days bring
+                   zero new ones. Existing customers must be preserved.
+                 - Pattern: COPY to temp staging table -> MERGE into main
+                   on customer_token (insert new, update existing in place).
+  - TRANSACTIONS : TRUNCATE + COPY (full reload)
+                   - Transactions are append-only events; we re-COPY the full
+                     S3 tree every run. Idempotent because the source data
+                     is immutable on S3.
 
-Trade-off documented: concurrent invocations would race each other on
-TRUNCATE. Safe for the Step Functions daily schedule (one at a time);
-not safe for parallel fan-out. Acceptable for our use case.
+Same input -> same final state for both tables.
 
 INPUT (event):
-    {
-        "ingest_date": "2026-05-15"   # optional - used for customers path
-    }
-    If ingest_date is omitted, defaults to today's date.
+    { "ingest_date": "2026-05-15" }  # optional, defaults to today
 
 OUTPUT:
     {
         "status": "success",
         "ingest_date": "2026-05-15",
-        "customers_loaded": 1000,
-        "transactions_loaded": 1621434,
-        "transactions_distinct_days": 760
+        "customers_total": 1002,      # total in table after MERGE
+        "customers_inserted": 2,      # new customers from today's delta
+        "customers_updated": 0,       # existing customers re-uploaded
+        "transactions_loaded": 1621474,
+        "transactions_distinct_days": 761
     }
 
 CONFIGURATION (environment variables, set by Terraform):
@@ -54,12 +59,6 @@ logger.setLevel(logging.INFO)
 # =============================================================================
 
 def fetch_snowflake_credentials(secret_arn: str, region: str) -> dict:
-    """
-    Read Snowflake credentials from Secrets Manager.
-
-    Secret is expected to be a JSON string with keys:
-        account, user, password
-    """
     client = boto3.client("secretsmanager", region_name=region)
     response = client.get_secret_value(SecretId=secret_arn)
     creds = json.loads(response["SecretString"])
@@ -78,7 +77,6 @@ def fetch_snowflake_credentials(secret_arn: str, region: str) -> dict:
 # =============================================================================
 
 def open_snowflake_connection(creds: dict):
-    """Open a Snowflake connection with the configured warehouse/database/role."""
     return snowflake.connector.connect(
         account=creds["account"],
         user=creds["user"],
@@ -87,43 +85,159 @@ def open_snowflake_connection(creds: dict):
         database=os.environ["SNOWFLAKE_DATABASE"],
         schema=os.environ["SNOWFLAKE_SCHEMA"],
         role=os.environ["SNOWFLAKE_ROLE"],
-        # Network resilience for Lambda's flaky cold-network environment
         network_timeout=60,
         login_timeout=30,
     )
 
 
 # =============================================================================
-# Load logic
+# Customer load: MERGE pattern (Type 1 SCD)
 # =============================================================================
 
-def load_customers(cursor, ingest_date: str, stage_name: str) -> int:
+def load_customers(cursor, ingest_date: str, stage_name: str) -> dict:
     """
-    TRUNCATE then COPY INTO customers. Returns row count loaded.
+    MERGE today's customer batch into RAW.CUSTOMERS, preserving prior days'
+    customers.
 
-    Uses MATCH_BY_COLUMN_NAME because customer parquet schema matches
-    RAW.CUSTOMERS column-for-column — no path extraction needed for
-    customer data (it's not Hive-partitioned, just a flat ingest_date prefix).
+    Three steps:
+      1. CREATE OR REPLACE TEMP TABLE -- empty staging table with same shape
+         as RAW.CUSTOMERS
+      2. COPY INTO the staging table from S3
+      3. MERGE staging into RAW.CUSTOMERS on customer_token
+
+    The MERGE statement uses `WHEN MATCHED THEN UPDATE` for re-uploads of
+    existing customers (their profile fields may have changed) and
+    `WHEN NOT MATCHED THEN INSERT` for new customers.
+
+    Returns counts: total, inserted, updated.
     """
-    logger.info(f"Truncating RAW.CUSTOMERS...")
-    cursor.execute("TRUNCATE TABLE RAW.CUSTOMERS")
+    logger.info(f"Loading customers for ingest_date={ingest_date} (MERGE pattern)")
 
+    # ---- Step 1: Create empty staging table with same shape as the target
+    # CREATE OR REPLACE drops any prior temp table (safety if a previous
+    # invocation crashed mid-load and somehow left state — though TEMP tables
+    # auto-drop at session end, this is belt-and-suspenders).
+    cursor.execute("""
+        CREATE OR REPLACE TEMPORARY TABLE RAW.CUSTOMERS_STAGE
+        LIKE RAW.CUSTOMERS
+    """)
+
+    # ---- Step 2: COPY today's S3 delta into the staging table
     copy_sql = f"""
-        COPY INTO RAW.CUSTOMERS
+        COPY INTO RAW.CUSTOMERS_STAGE
         FROM @{stage_name}/customers/ingest_date={ingest_date}/
         FILE_FORMAT = (TYPE = PARQUET)
         MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
         PATTERN = '.*[.]parquet'
         ON_ERROR = ABORT_STATEMENT
     """
-    logger.info(f"Loading customers from ingest_date={ingest_date}...")
     cursor.execute(copy_sql)
+    cursor.execute("SELECT COUNT(*) FROM RAW.CUSTOMERS_STAGE")
+    staged_count = cursor.fetchone()[0]
+    logger.info(f"  Staged {staged_count:,} customer rows for MERGE")
 
+    # ---- Step 3: MERGE staging into target. Type 1 SCD: keep latest version.
+    #
+    # We explicitly list the fields rather than using `UPDATE SET *` because
+    # `UPDATE SET *` requires identical column orders + names in both tables,
+    # which is fragile across schema changes. Explicit is safer.
+    #
+    # Note: we do NOT update customer_token in WHEN MATCHED. The token IS the
+    # join key, so updating it would be either no-op or destructive.
+    # Column names verified against DESCRIBE TABLE RAW.CUSTOMERS:
+    #   CUSTOMER_TOKEN, ACCOUNT_TOKEN, PERSONA_ID, PERSONA_NAME, AGE_BAND,
+    #   INCOME_BAND, HOUSEHOLD_INCOME_BAND, FAMILY_STATUS, NUM_DEPENDENTS,
+    #   GEOGRAPHY, STATE, ZIP_PREFIX, ACCOUNT_OPEN_DATE, ACCOUNT_TYPE,
+    #   CREDIT_SCORE_BAND, IS_ACTIVE, CREATED_AT,
+    #   INGESTED_AT, BATCH_ID, SOURCE_FILE  (← metadata, handled separately)
+    #
+    # The three metadata columns (INGESTED_AT, BATCH_ID, SOURCE_FILE) are NOT
+    # in the EMR parquet. On INSERT we stamp INGESTED_AT with the load time and
+    # leave BATCH_ID/SOURCE_FILE NULL (could be wired later). On UPDATE we
+    # refresh INGESTED_AT so we know when a record was last touched, but we do
+    # NOT overwrite the data columns with anything the source lacks.
+    merge_sql = """
+        MERGE INTO RAW.CUSTOMERS AS target
+        USING RAW.CUSTOMERS_STAGE AS source
+            ON target.customer_token = source.customer_token
+
+        WHEN MATCHED THEN UPDATE SET
+            target.account_token         = source.account_token,
+            target.persona_id            = source.persona_id,
+            target.persona_name          = source.persona_name,
+            target.age_band              = source.age_band,
+            target.income_band           = source.income_band,
+            target.household_income_band = source.household_income_band,
+            target.family_status         = source.family_status,
+            target.num_dependents        = source.num_dependents,
+            target.geography             = source.geography,
+            target.state                 = source.state,
+            target.zip_prefix            = source.zip_prefix,
+            target.account_open_date     = source.account_open_date,
+            target.account_type          = source.account_type,
+            target.credit_score_band     = source.credit_score_band,
+            target.is_active             = source.is_active,
+            target.created_at            = source.created_at,
+            target.ingested_at           = CURRENT_TIMESTAMP()
+
+        WHEN NOT MATCHED THEN INSERT (
+            customer_token, account_token, persona_id, persona_name,
+            age_band, income_band, household_income_band,
+            family_status, num_dependents, geography, state, zip_prefix,
+            account_open_date, account_type, credit_score_band,
+            is_active, created_at, ingested_at
+        )
+        VALUES (
+            source.customer_token, source.account_token, source.persona_id,
+            source.persona_name, source.age_band, source.income_band,
+            source.household_income_band, source.family_status,
+            source.num_dependents, source.geography, source.state,
+            source.zip_prefix, source.account_open_date, source.account_type,
+            source.credit_score_band, source.is_active, source.created_at,
+            CURRENT_TIMESTAMP()
+        )
+    """
+    cursor.execute(merge_sql)
+
+    # Snowflake's MERGE returns a single result row whose columns are named
+    # "number of rows inserted" and "number of rows updated" (and deleted, for
+    # MERGEs with a DELETE clause). The column ORDER isn't guaranteed across
+    # versions, so we map by the cursor's column descriptions rather than by
+    # positional index. Defensive: if anything is unexpected, counts stay 0
+    # and we still report the authoritative before/after total below.
+    inserted = 0
+    updated = 0
+    try:
+        row = cursor.fetchone()
+        if row and cursor.description:
+            col_names = [d[0].lower() for d in cursor.description]
+            by_name = dict(zip(col_names, row))
+            for name, val in by_name.items():
+                if "insert" in name:
+                    inserted = int(val)
+                elif "update" in name:
+                    updated = int(val)
+    except Exception as e:
+        logger.warning(f"  Could not parse MERGE metrics (non-fatal): {e}")
+    logger.info(f"  MERGE: {inserted:,} inserted, {updated:,} updated")
+
+    # Authoritative total — the count is the source of truth regardless of
+    # whether the MERGE metrics parsed cleanly.
     cursor.execute("SELECT COUNT(*) FROM RAW.CUSTOMERS")
-    count = cursor.fetchone()[0]
-    logger.info(f"  Loaded {count:,} customer rows")
-    return count
+    total = cursor.fetchone()[0]
+    logger.info(f"  Final RAW.CUSTOMERS total: {total:,}")
 
+    return {
+        "customers_total": total,
+        "customers_inserted": inserted,
+        "customers_updated": updated,
+        "customers_staged": staged_count,
+    }
+
+
+# =============================================================================
+# Transaction load: TRUNCATE + COPY (full reload, idempotent)
+# =============================================================================
 
 def load_transactions(cursor, stage_name: str) -> tuple:
     """
@@ -132,12 +246,11 @@ def load_transactions(cursor, stage_name: str) -> tuple:
 
     Returns (total_rows, distinct_days).
 
-    Uses explicit column-by-column projection (not MATCH_BY_COLUMN_NAME)
-    because we need REGEXP_SUBSTR(METADATA$FILENAME, ...) to reconstruct
-    year_month and day from the Hive-style folder paths — Spark doesn't
-    write partition columns into parquet content, only into folder names.
+    Transactions are immutable events on S3; a full re-COPY is correct and
+    idempotent. Spark partitions live in S3 folder names, not parquet content,
+    so we use METADATA$FILENAME regex extraction to populate year_month/day.
     """
-    logger.info(f"Truncating RAW.TRANSACTIONS...")
+    logger.info("Truncating RAW.TRANSACTIONS for full reload...")
     cursor.execute("TRUNCATE TABLE RAW.TRANSACTIONS")
 
     copy_sql = f"""
@@ -180,8 +293,7 @@ def load_transactions(cursor, stage_name: str) -> tuple:
     total, distinct_days, null_days = cursor.fetchone()
     logger.info(f"  Loaded {total:,} transaction rows across {distinct_days} days")
 
-    # Fail-loud guard: same pattern as the Spark PII guard.
-    # NULL partition columns silently break downstream date-based analytics.
+    # Fail-loud guard: NULL partition columns silently break analytics
     if null_days > 0:
         raise ValueError(
             f"DATA QUALITY FAILURE: {null_days:,} of {total:,} transaction rows "
@@ -197,29 +309,21 @@ def load_transactions(cursor, stage_name: str) -> tuple:
 # =============================================================================
 
 def lambda_handler(event, context):
-    """
-    Triggered by Step Functions or direct invocation.
-
-    event: {"ingest_date": "YYYY-MM-DD"}  (optional, defaults to today)
-    """
     region = os.environ.get("AWS_REGION_OVERRIDE", os.environ.get("AWS_REGION", "us-east-1"))
     secret_arn = os.environ["SNOWFLAKE_SECRET_ARN"]
     stage_name = os.environ["STAGE_NAME"]
 
-    # Default ingest_date to today (UTC) if not supplied
     ingest_date = event.get("ingest_date") or date.today().isoformat()
     logger.info(f"Starting load for ingest_date={ingest_date}")
 
-    # 1) Fetch credentials
     creds = fetch_snowflake_credentials(secret_arn, region)
     logger.info(f"Fetched Snowflake credentials for account: {creds['account']}")
 
-    # 2) Connect and load
     conn = open_snowflake_connection(creds)
     try:
         cursor = conn.cursor()
         try:
-            customers_count = load_customers(cursor, ingest_date, stage_name)
+            customer_metrics = load_customers(cursor, ingest_date, stage_name)
             transactions_total, transactions_days = load_transactions(cursor, stage_name)
         finally:
             cursor.close()
@@ -229,7 +333,10 @@ def lambda_handler(event, context):
     result = {
         "status": "success",
         "ingest_date": ingest_date,
-        "customers_loaded": customers_count,
+        "customers_total": customer_metrics["customers_total"],
+        "customers_inserted": customer_metrics["customers_inserted"],
+        "customers_updated": customer_metrics["customers_updated"],
+        "customers_staged": customer_metrics["customers_staged"],
         "transactions_loaded": transactions_total,
         "transactions_distinct_days": transactions_days,
     }

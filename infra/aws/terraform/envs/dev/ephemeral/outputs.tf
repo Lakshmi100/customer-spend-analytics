@@ -109,3 +109,16 @@ output "pipeline_state_machine_name" {
 output "pipeline_log_group" {
   value = module.step_functions.log_group_name
 }
+
+output "schedule_rule_name" {
+  description = "EventBridge daily schedule rule name"
+  value       = module.daily_schedule.rule_name
+}
+
+output "schedule_expression" {
+  value = module.daily_schedule.schedule_expression
+}
+
+output "schedule_state" {
+  value = module.daily_schedule.rule_state
+}

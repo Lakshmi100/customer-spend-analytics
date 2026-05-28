@@ -91,7 +91,9 @@
         }
       },
       "ResultSelector": {
-        "customers_loaded.$": "$.Payload.customers_loaded",
+        "customers_total.$": "$.Payload.customers_total",
+        "customers_inserted.$": "$.Payload.customers_inserted",
+        "customers_updated.$": "$.Payload.customers_updated",
         "transactions_loaded.$": "$.Payload.transactions_loaded",
         "transactions_distinct_days.$": "$.Payload.transactions_distinct_days"
       },

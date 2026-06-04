@@ -50,6 +50,13 @@ from datetime import date
 import boto3
 import snowflake.connector
 
+# ──────────────────────────────────────────────────────────────────────────
+# ADD this import near the top of each handler.py
+# ──────────────────────────────────────────────────────────────────────────
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -59,28 +66,63 @@ logger.setLevel(logging.INFO)
 # =============================================================================
 
 def fetch_snowflake_credentials(secret_arn: str, region: str) -> dict:
+    """
+    Read Snowflake credentials from Secrets Manager.
+
+    New schema (key-pair auth — replaces password auth that failed under
+    Snowflake's MFA-required policy on paid accounts):
+        {
+            "account":     "<account locator>",
+            "user":        "CSA_SERVICE_USER",
+            "private_key": "<PEM-encoded PKCS8 private key>"
+        }
+    """
     client = boto3.client("secretsmanager", region_name=region)
     response = client.get_secret_value(SecretId=secret_arn)
     creds = json.loads(response["SecretString"])
 
-    required = {"account", "user", "password"}
+    required = {"account", "user", "private_key"}
     missing = required - set(creds.keys())
     if missing:
         raise ValueError(
-            f"Snowflake secret missing required keys: {sorted(missing)}"
+            f"Snowflake secret missing required keys: {sorted(missing)}. "
+            f"Expected schema: account, user, private_key. "
+            f"Got keys: {sorted(creds.keys())}"
         )
     return creds
-
 
 # =============================================================================
 # Snowflake connection
 # =============================================================================
 
 def open_snowflake_connection(creds: dict):
+    """
+    Open a Snowflake connection using key-pair authentication.
+
+    snowflake-connector-python expects the private key as DER bytes,
+    so we load the PEM string and re-serialize to DER.
+    """
+    # Load PEM-encoded private key (no passphrase — for production with
+    # passphrase, add password=... here and store passphrase separately
+    # in Secrets Manager).
+    private_key_pem = creds["private_key"].encode("utf-8")
+    pkey = serialization.load_pem_private_key(
+        private_key_pem,
+        password=None,
+        backend=default_backend(),
+    )
+
+    # Snowflake connector wants the key as DER bytes
+    pkey_bytes = pkey.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
     return snowflake.connector.connect(
         account=creds["account"],
         user=creds["user"],
-        password=creds["password"],
+        private_key=pkey_bytes,
         warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
         database=os.environ["SNOWFLAKE_DATABASE"],
         schema=os.environ["SNOWFLAKE_SCHEMA"],

@@ -43,6 +43,13 @@ import pandas as pd
 import snowflake.connector
 from faker import Faker
 
+# ──────────────────────────────────────────────────────────────────────────
+# ADD this import near the top of each handler.py
+# ──────────────────────────────────────────────────────────────────────────
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import serialization
+
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
@@ -117,25 +124,59 @@ TXN_STATUSES = ["posted", "posted", "posted", "pending"]  # weighted toward post
 # =============================================================================
 
 def fetch_snowflake_credentials(secret_arn: str, region: str) -> dict:
+    """
+    Read Snowflake credentials from Secrets Manager.
+
+    New schema (key-pair auth — replaces password auth that failed under
+    Snowflake's MFA-required policy on paid accounts):
+        {
+            "account":     "<account locator>",
+            "user":        "CSA_SERVICE_USER",
+            "private_key": "<PEM-encoded PKCS8 private key>"
+        }
+    """
     client = boto3.client("secretsmanager", region_name=region)
     response = client.get_secret_value(SecretId=secret_arn)
-    return json.loads(response["SecretString"])
+    creds = json.loads(response["SecretString"])
 
+    required = {"account", "user", "private_key"}
+    missing = required - set(creds.keys())
+    if missing:
+        raise ValueError(
+            f"Snowflake secret missing required keys: {sorted(missing)}. "
+            f"Expected schema: account, user, private_key. "
+            f"Got keys: {sorted(creds.keys())}"
+        )
+    return creds
 
-# =============================================================================
-# Snowflake — read existing customer tokens + personas
-# =============================================================================
-
-def fetch_existing_customers(creds: dict, sample_size: int) -> list:
+def open_snowflake_connection(creds: dict):
     """
-    Returns a list of dicts: [{"customer_token": "...", "persona_id": "P11"}, ...]
+    Open a Snowflake connection using key-pair authentication.
 
-    Uses TABLESAMPLE for efficient sampling at scale.
+    snowflake-connector-python expects the private key as DER bytes,
+    so we load the PEM string and re-serialize to DER.
     """
-    conn = snowflake.connector.connect(
+    # Load PEM-encoded private key (no passphrase — for production with
+    # passphrase, add password=... here and store passphrase separately
+    # in Secrets Manager).
+    private_key_pem = creds["private_key"].encode("utf-8")
+    pkey = serialization.load_pem_private_key(
+        private_key_pem,
+        password=None,
+        backend=default_backend(),
+    )
+
+    # Snowflake connector wants the key as DER bytes
+    pkey_bytes = pkey.private_bytes(
+        encoding=serialization.Encoding.DER,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    return snowflake.connector.connect(
         account=creds["account"],
         user=creds["user"],
-        password=creds["password"],
+        private_key=pkey_bytes,
         warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
         database=os.environ["SNOWFLAKE_DATABASE"],
         schema=os.environ["SNOWFLAKE_SCHEMA"],
@@ -143,6 +184,30 @@ def fetch_existing_customers(creds: dict, sample_size: int) -> list:
         network_timeout=60,
         login_timeout=30,
     )
+
+# =============================================================================
+# Snowflake — read existing customer tokens + personas
+# =============================================================================
+
+# =============================================================================
+# Replace this call to use open_snowflake_connection() instead of
+# duplicating the connect parameters — both safer (one place to maintain
+# auth) and necessary (the old version still references creds["password"]
+# which no longer exists after the key-pair migration).
+# =============================================================================
+
+
+def fetch_existing_customers(creds: dict, sample_size: int) -> list:
+    """
+    Returns a list of dicts: [{"customer_token": "...", "persona_id": "P11"}, ...]
+
+    Uses TABLESAMPLE for efficient random sampling at scale.
+
+    Refactored to use the shared open_snowflake_connection helper rather
+    than duplicating connection parameters — single source of truth for
+    auth logic.
+    """
+    conn = open_snowflake_connection(creds)
     try:
         cursor = conn.cursor()
         try:

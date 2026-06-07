@@ -11,7 +11,10 @@
 ![dbt](https://img.shields.io/badge/dbt-1.11-FF694B)
 ![Airflow](https://img.shields.io/badge/airflow-2.10-017CEE)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
+![AWS](https://img.shields.io/badge/AWS-Lambda%20%2B%20EMR%20%2B%20Step%20Functions-FF9900)
+![Terraform](https://img.shields.io/badge/terraform-1.14-844FBA)
 ![License](https://img.shields.io/badge/license-MIT-green)
+
 
 ---
 
@@ -26,6 +29,13 @@ through their banking app.
 This repo contains the entire pipeline: synthetic data generation,
 ingestion with PII tokenization, dbt transformations, ML segmentation,
 a recommender API, a demo dashboard, and Airflow orchestration.
+
+**Phase 2** extends the same pipeline to AWS as a serverless, Terraform-managed,
+daily-scheduled production architecture: AWS Lambda for delta generation and
+Snowflake loading, EMR Serverless for PySpark tokenization, Step Functions for
+orchestration, EventBridge for daily cron scheduling. Service authentication
+uses RSA key-pair (no passwords). Total monthly AWS spend: ~$12, with nightly
+compute teardown via Smart Mode.
 
 ---
 

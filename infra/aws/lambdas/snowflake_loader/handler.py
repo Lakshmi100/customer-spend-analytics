@@ -45,6 +45,7 @@ CONFIGURATION (environment variables, set by Terraform):
 import json
 import logging
 import os
+import uuid
 from datetime import date
 
 import boto3
@@ -168,7 +169,7 @@ def load_customers(cursor, ingest_date: str, stage_name: str) -> dict:
     copy_sql = f"""
         COPY INTO RAW.CUSTOMERS_STAGE
         FROM @{stage_name}/customers/ingest_date={ingest_date}/
-        FILE_FORMAT = (TYPE = PARQUET)
+        FILE_FORMAT = (FORMAT_NAME = 'ABC_BANK_ANALYTICS.RAW.PARQUET_FORMAT')
         MATCH_BY_COLUMN_NAME = CASE_INSENSITIVE
         PATTERN = '.*[.]parquet'
         ON_ERROR = ABORT_STATEMENT
@@ -281,17 +282,27 @@ def load_customers(cursor, ingest_date: str, stage_name: str) -> dict:
 # Transaction load: TRUNCATE + COPY (full reload, idempotent)
 # =============================================================================
 
-def load_transactions(cursor, stage_name: str) -> tuple:
+def load_transactions(cursor, stage_name: str, ingest_date: str) -> tuple:
     """
     TRUNCATE then COPY INTO transactions with path extraction for
-    year_month and day partition columns.
+    year_month and day partition columns, plus lineage metadata.
 
     Returns (total_rows, distinct_days).
 
     Transactions are immutable events on S3; a full re-COPY is correct and
     idempotent. Spark partitions live in S3 folder names, not parquet content,
     so we use METADATA$FILENAME regex extraction to populate year_month/day.
+
+    Also populates lineage metadata:
+      - ingested_at: CURRENT_TIMESTAMP at COPY time (Snowflake's clock)
+      - batch_id:    unique per Lambda invocation (aws_batch_<date>_<uuid8>)
+      - source_file: METADATA$FILENAME — which parquet file this row came from
     """
+    # Unique batch_id per Lambda invocation — deterministic prefix + random suffix
+    # so retries produce different batch_ids (helps debugging)
+    batch_id = f"aws_batch_{ingest_date}_{uuid.uuid4().hex[:8]}"
+    logger.info(f"Generated batch_id: {batch_id}")
+
     logger.info("Truncating RAW.TRANSACTIONS for full reload...")
     cursor.execute("TRUNCATE TABLE RAW.TRANSACTIONS")
 
@@ -300,7 +311,8 @@ def load_transactions(cursor, stage_name: str) -> tuple:
             transaction_id, customer_token, transaction_date, transaction_ts,
             amount, category, merchant_id, merchant_name, channel,
             payment_method, is_recurring, state, txn_status,
-            year_month, day
+            year_month, day,
+            ingested_at, batch_id, source_file
         )
         FROM (
             SELECT
@@ -318,14 +330,17 @@ def load_transactions(cursor, stage_name: str) -> tuple:
                 $1:state::VARCHAR,
                 $1:txn_status::VARCHAR,
                 REGEXP_SUBSTR(METADATA$FILENAME, 'year_month=([^/]+)', 1, 1, 'e', 1)::VARCHAR AS year_month,
-                REGEXP_SUBSTR(METADATA$FILENAME, 'day=([^/]+)', 1, 1, 'e', 1)::VARCHAR        AS day
+                REGEXP_SUBSTR(METADATA$FILENAME, 'day=([^/]+)', 1, 1, 'e', 1)::VARCHAR        AS day,
+                CURRENT_TIMESTAMP()::TIMESTAMP_NTZ AS ingested_at,
+                '{batch_id}' AS batch_id,
+                METADATA$FILENAME AS source_file
             FROM @{stage_name}/transactions/
         )
-        FILE_FORMAT = (TYPE = PARQUET)
+        FILE_FORMAT = (FORMAT_NAME = 'ABC_BANK_ANALYTICS.RAW.PARQUET_FORMAT')
         PATTERN = '.*[.]parquet'
         ON_ERROR = ABORT_STATEMENT
     """
-    logger.info("Loading transactions (path-extraction for year_month + day)...")
+    logger.info("Loading transactions (path-extraction for year_month + day, plus lineage metadata)...")
     cursor.execute(copy_sql)
 
     cursor.execute("""
@@ -344,7 +359,6 @@ def load_transactions(cursor, stage_name: str) -> tuple:
         )
 
     return total, distinct_days
-
 
 # =============================================================================
 # Lambda entry point
@@ -366,7 +380,7 @@ def lambda_handler(event, context):
         cursor = conn.cursor()
         try:
             customer_metrics = load_customers(cursor, ingest_date, stage_name)
-            transactions_total, transactions_days = load_transactions(cursor, stage_name)
+            transactions_total, transactions_days = load_transactions(cursor, stage_name, ingest_date)
         finally:
             cursor.close()
     finally:

@@ -13,7 +13,6 @@ Run:
 """
 
 import os
-import snowflake.connector
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -93,16 +92,10 @@ DDL_STATEMENTS = [
     "COMMENT ON TABLE ABC_BANK_ANALYTICS.RAW.TRANSACTIONS IS 'Raw transaction events, partitioned upstream by year_month'",
 ]
 
-
 def get_connection():
-    return snowflake.connector.connect(
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-        role=os.getenv("SNOWFLAKE_ROLE"),
-    )
-
+    """Open Snowflake connection via shared key-pair auth helper."""
+    from ingestion.snowflake_auth import get_connection as _kp_connect
+    return _kp_connect()
 
 def main():
     print("Connecting to Snowflake...")

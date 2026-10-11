@@ -39,6 +39,13 @@ compute teardown via Smart Mode.
 
 ---
 
+## Architecture
+
+For a comprehensive walkthrough of the system design — including trust
+boundary details, the AWS Step Functions state machine, cross-cutting
+concerns, and the architectural decisions journal — see
+**[ARCHITECTURE.md](./ARCHITECTURE.md)**.
+
 ## Demo
 
 | | |
@@ -383,12 +390,115 @@ pip install -r requirements.txt
 
 ### 2. Configure Snowflake credentials
 
+### 2. Configure Snowflake credentials (RSA key-pair auth)
+
+The project uses RSA key-pair authentication against a Snowflake
+`TYPE=SERVICE` user. Password auth won't work — Snowflake's Enterprise
+tier enforces MFA on human users, and services can't complete MFA
+prompts.
+
+**Generate a key pair on your machine:**
+
+```bash
+mkdir -p ~/.snowflake-keys
+cd ~/.snowflake-keys
+
+# Generate 2048-bit RSA private key (no passphrase for local dev;
+# production would encrypt with passphrase stored separately)
+openssl genrsa -out csa_service_key.p8 2048
+
+# Derive the matching public key
+openssl rsa -in csa_service_key.p8 -pubout -out csa_service_key.pub
+
+# Lock down permissions (Snowflake connector rejects world-readable keys)
+chmod 600 csa_service_key.p8
+```
+
+**Register the public key on your Snowflake user.**
+In a Snowflake worksheet, create the service user (one-time) and
+attach the public key:
+
+```sql
+-- Create a service user (skip if you already have one)
+CREATE USER IF NOT EXISTS CSA_SERVICE_USER
+  TYPE = SERVICE
+  DEFAULT_ROLE = ACCOUNTADMIN
+  DEFAULT_WAREHOUSE = COMPUTE_WH
+  DEFAULT_NAMESPACE = ABC_BANK_ANALYTICS.RAW;
+
+-- Register the public key (paste the contents of csa_service_key.pub
+-- between the header/footer BEGIN/END lines — one continuous string
+-- with no line breaks)
+ALTER USER CSA_SERVICE_USER
+  SET RSA_PUBLIC_KEY = 'MIIBIj...paste_public_key_body...QIDAQAB';
+
+-- Grant roles the service user needs
+GRANT ROLE ACCOUNTADMIN TO USER CSA_SERVICE_USER;
+GRANT ROLE DBT_ROLE TO USER CSA_SERVICE_USER;
+```
+
+**Configure `.env`** at the repo root:
+
 ```bash
 cp .env.example .env
-# Edit .env with your Snowflake account, user, password, etc.
-# Generate the PII salt:
+```
+
+Edit `.env` to set:
+
+```bash
+SNOWFLAKE_ACCOUNT=<your-org-name>-<your-account>   # e.g., ABCDEF-123456
+SNOWFLAKE_USER=CSA_SERVICE_USER
+SNOWFLAKE_PRIVATE_KEY_PATH=/Users/<you>/.snowflake-keys/csa_service_key.p8
+SNOWFLAKE_WAREHOUSE=COMPUTE_WH
+SNOWFLAKE_ROLE=ACCOUNTADMIN
+SNOWFLAKE_DATABASE=ABC_BANK_ANALYTICS
+SNOWFLAKE_SCHEMA=RAW
+
+# Generate the PII tokenization salt (32 hex bytes)
 python -c "import secrets; print(f'PII_SALT={secrets.token_hex(32)}')" >> .env
 ```
+
+**Also configure `airflow/.env`** — the Docker Compose stack reads this
+one separately. Same values, but the private key path is the *container*
+path where we'll mount the key (not your Mac path):
+
+```bash
+cp airflow/.env.example airflow/.env
+```
+
+Edit `airflow/.env`:
+
+```bash
+SNOWFLAKE_PRIVATE_KEY_PATH=/opt/keys/csa_service_key.p8
+```
+
+The `.env` at the repo root is for standalone Python (running scripts
+directly from your venv). The `airflow/.env` is for the containerized
+Airflow stack.
+
+**Update the dbt profile** at `~/.dbt/profiles.yml`:
+
+```yaml
+coupon_analytics:
+  outputs:
+    dev:
+      type: snowflake
+      account: <your-org-name>-<your-account>
+      user: CSA_SERVICE_USER
+      private_key_path: /opt/keys/csa_service_key.p8
+      role: DBT_ROLE
+      warehouse: DBT_WH
+      database: ABC_BANK_ANALYTICS
+      schema: MARTS
+      threads: 4
+      client_session_keep_alive: False
+  target: dev
+```
+
+Also mirror this file to `coupon_analytics/profiles/profiles.yml`
+because the Airflow DAG's `dbt build --profiles-dir` command points
+there (add `coupon_analytics/profiles/` to `.gitignore` so it stays
+out of the repo).
 
 ### 3. Set up Snowflake schema (one-time)
 
@@ -437,15 +547,73 @@ Visit `http://localhost:8501` for the dashboard or
 
 ### 6. Run the daily pipeline via Airflow (optional)
 
+### 6. Run the daily pipeline via Airflow
+
+Prerequisites:
+- `airflow/.env` configured (per Step 2)
+- Private key at `~/.snowflake-keys/csa_service_key.p8` with chmod 600
+- Docker Desktop running
+
+**Build and start the containers:**
+
 ```bash
 cd airflow
-cp .env.example .env   # fill in Snowflake creds
-docker-compose up -d --build
-# Wait ~30 seconds for stack to come up
+docker compose up -d --build
+# First build takes ~10-15 min — installs OpenJDK 17 + PySpark 3.5.0
+# on top of the Airflow base image. Subsequent starts use cached layers.
 ```
 
+Three containers come up: `airflow_postgres` (metadata DB),
+`airflow_webserver`, and `airflow_scheduler`. The private key mounts
+read-only into webserver + scheduler at `/opt/keys/csa_service_key.p8`
+via the volume declaration in `docker-compose.yml`.
+
+**Verify the environment is healthy:**
+
+```bash
+# All three containers should show "healthy" or "Up"
+docker compose ps
+
+# Verify Java is installed in the scheduler
+docker exec airflow_scheduler java -version
+# Expected: openjdk version "17.x.x"
+
+# Verify PySpark can start a session
+docker exec airflow_scheduler python -c "from pyspark.sql import SparkSession; \
+    print('PySpark:', SparkSession.builder.appName('t').master('local[*]').getOrCreate().version)"
+# Expected: PySpark: 3.5.0
+
+# Verify Snowflake auth works before triggering the DAG
+docker exec airflow_scheduler python -c "
+from ingestion.snowflake_auth import get_connection
+conn = get_connection()
+cur = conn.cursor()
+cur.execute('SELECT CURRENT_USER(), CURRENT_ROLE(), CURRENT_WAREHOUSE()')
+print('AUTH SUCCESS:', cur.fetchone())
+conn.close()
+"
+# Expected: AUTH SUCCESS: ('CSA_SERVICE_USER', 'ACCOUNTADMIN', 'COMPUTE_WH')
+```
+
+If the auth check fails with "Multi-factor authentication is required",
+your shell probably has stale `SNOWFLAKE_USER` or
+`SNOWFLAKE_PRIVATE_KEY_PATH` exports overriding the `.env` file
+(docker-compose gives shell env vars priority over `.env`). Fix with
+`unset SNOWFLAKE_USER SNOWFLAKE_PRIVATE_KEY_PATH` then
+`docker compose down && docker compose up -d`.
+
+**Trigger the DAG:**
+
 Open `http://localhost:8080` (login `admin`/`admin`), find
-`coupon_pipeline`, toggle it on, and trigger.
+`coupon_pipeline`, toggle it on, and click the ▶️ trigger button.
+Or from CLI:
+
+```bash
+docker exec airflow_webserver airflow dags trigger coupon_pipeline
+```
+
+Full run takes ~5-8 min end-to-end (all 8 work tasks + start/end
+wrappers). Watch progress in the UI's Graph View.
 
 ---
 
@@ -584,23 +752,35 @@ The whole pipeline ports cleanly to GCP — equivalent services map as:
 
 GCP port handoff guide will be generated in the wrap-up session.
 
-### Known limitations (to fix)
+### Known limitations (deferred work)
 
-1. **Customer load is full-replace, not append.** The snowflake_loader currently
-   TRUNCATEs RAW.CUSTOMERS on every run and COPYs from today's ingest_date
-   partition. For daily incremental loads where only a few customers change
-   per day, this loses prior days' customers. The proper pattern is
-   append-with-dedupe (Type 1 SCD): MERGE on customer_token, keeping the most
-   recent record. Planned fix for next session.
+The core pipeline works end-to-end in both local and AWS environments.
+These are hardening items for future iterations:
 
-2. **Spark script in S3 is not Terraform-managed.** Currently uploaded via
-   spark_jobs/upload_to_s3.sh. A clean ephemeral-destroy/apply doesn't restore
-   it; the file lives in the persistent S3 bucket independently. Should be
-   wrapped in aws_s3_object for proper Terraform tracking.
+1. **Single service user across workloads.** `CSA_SERVICE_USER` is used
+   for all Snowflake connections (with role switching for privilege
+   scoping — ACCOUNTADMIN for pipeline work, DBT_ROLE for dbt). Production
+   would split into separate service users per workload, each with its
+   own key pair, for full defense-in-depth on the credential dimension.
 
-3. **No EventBridge scheduling yet.** Pipeline is manual-trigger today.
-   Adding a daily 8am UTC cron schedule via EventBridge is a single resource
-   away — planned alongside the customer-load fix.
+2. **Private key has no passphrase.** Current key is stored unencrypted
+   on disk (permissions 600 only). Production would encrypt with
+   passphrase stored as a separate Secrets Manager entry, decrypted
+   in memory at connection time.
+
+3. **No automated key rotation.** Snowflake supports `RSA_PUBLIC_KEY_2`
+   for zero-downtime rotation (register new key alongside old, roll
+   forward, then drop old). Currently manual.
+
+4. **dbt runs locally only.** dbt transformations execute in the local
+   Airflow stack (`dbt_build` task). Production would run dbt on a
+   scheduled compute (ECS Fargate task or dbt Cloud), authenticated
+   via Secrets Manager with the same key-pair pattern as the Lambdas.
+
+5. **No proactive failure alerting.** Failed Step Functions executions
+   surface in the AWS console but no alarm fires. Production would
+   wire a CloudWatch alarm on the state machine's `ExecutionsFailed`
+   metric to SNS → email/Slack.
 
 ### War stories (debugging lessons worth keeping)
 

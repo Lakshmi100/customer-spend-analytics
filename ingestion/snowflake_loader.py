@@ -18,41 +18,53 @@ import sys
 from pathlib import Path
 
 import pyarrow.parquet as pq
-import snowflake.connector
 from dotenv import load_dotenv
 
-load_dotenv()
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+load_dotenv(PROJECT_ROOT / ".env")
+
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 
 DB = "ABC_BANK_ANALYTICS"
 SCHEMA = "RAW"
 STAGE = f"{DB}.{SCHEMA}.INGESTION_STAGE"
 
-
 def get_connection():
-    return snowflake.connector.connect(
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        warehouse=os.getenv("SNOWFLAKE_WAREHOUSE"),
-        role=os.getenv("SNOWFLAKE_ROLE"),
-        database=DB,
-        schema=SCHEMA,
-    )
+    """Open Snowflake connection via shared key-pair auth helper."""
+    from ingestion.snowflake_auth import get_connection as _kp_connect
+    return _kp_connect(database=DB, schema=SCHEMA)
+
 
 
 def get_parquet_files(table_dir: Path) -> list:
-    """Recursively find all .parquet files (handles partitioned dirs)."""
-    return sorted(glob.glob(str(table_dir / "**" / "*.parquet"), recursive=True))
+    """Recursively find valid parquet data files, skipping Spark temp artifacts."""
+    files = []
+    for f in sorted(glob.glob(str(table_dir / "**" / "*.parquet"), recursive=True)):
+        path = Path(f)
+        name = path.name
+
+        # Skip Spark temp artifacts and CRC/marker files that are not actual data.
+        if name.startswith(".") or name == "_SUCCESS" or name.startswith("_"):
+            continue
+        if "_temporary" in path.parts:
+            continue
+        if path.stat().st_size == 0:
+            continue
+        files.append(str(path))
+    return files
 
 
 def count_rows_in_files(files: list) -> int:
-    """Read the actual row count across all parquet files (truth source)."""
+    """Read the actual row count across valid parquet files (truth source)."""
     total = 0
     for f in files:
-        total += pq.read_metadata(f).num_rows
+        path = Path(f)
+        if path.stat().st_size == 0:
+            continue
+        total += pq.read_metadata(str(path)).num_rows
     return total
 
 
@@ -153,7 +165,7 @@ def _col_type(col_name: str) -> str:
 
 
 CUSTOMER_COLUMNS = [
-    "customer_id", "customer_token", "account_token",
+    "customer_token", "account_token",
     "persona_id", "persona_name",
     "age_band", "income_band", "household_income_band",
     "family_status", "num_dependents", "geography", "state", "zip_prefix",
@@ -162,7 +174,7 @@ CUSTOMER_COLUMNS = [
 ]
 
 TRANSACTION_COLUMNS = [
-    "transaction_id", "customer_id", "customer_token",
+    "transaction_id", "customer_token",
     "transaction_date", "transaction_ts", "amount",
     "category", "merchant_id", "merchant_name", "channel",
     "payment_method", "is_recurring", "state", "txn_status",

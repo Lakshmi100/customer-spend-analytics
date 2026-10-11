@@ -18,6 +18,7 @@ Output: data/raw/customers.parquet (and CSV for inspection)
 """
 
 import hashlib
+import os
 import random
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -26,7 +27,10 @@ import numpy as np
 import pandas as pd
 from faker import Faker
 
-from personas import PERSONAS, get_persona
+try:
+    from .personas import PERSONAS, get_persona
+except ImportError:  # pragma: no cover - supports running as a standalone script
+    from personas import PERSONAS, get_persona
 
 SEED = 42
 random.seed(SEED)
@@ -35,8 +39,31 @@ fake = Faker("en_US")
 Faker.seed(SEED)
 
 NUM_CUSTOMERS = 1000
+DELTA_CUSTOMER_COUNT = 5
 OUTPUT_DIR = Path("data/raw")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def get_ingest_date() -> str:
+    value = os.getenv("INGEST_DATE") or date.today().isoformat()
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"INGEST_DATE must be a valid YYYY-MM-DD value: {value!r}") from exc
+    return value
+
+
+def get_daily_customer_subset() -> list[str]:
+    """Return a small deterministic customer subset for daily delta runs.
+
+    For the normal full-data path, we still generate the full 1,000-customer
+    dataset. When `INGEST_DATE` is set, we create a focused delta batch of 5
+    customer records per date so the daily-load path stays lightweight and
+    testable.
+    """
+    return [
+        "P01", "P04", "P10", "P15", "P20",
+    ]
 
 
 PERSONA_DISTRIBUTION = {
@@ -173,20 +200,35 @@ def generate_customer(seq: int, persona_id: str) -> dict:
 
 
 def main():
-    print(f"Generating {NUM_CUSTOMERS} customers WITH realistic PII...")
-    print("(This is what ABC Bank's internal customer master would look like.)\n")
+    ingest_date = get_ingest_date()
+    is_daily_delta = bool(os.getenv("INGEST_DATE"))
 
-    rows = []
-    seq = 1
-    for persona_id, count in PERSONA_DISTRIBUTION.items():
-        for _ in range(count):
+    if is_daily_delta:
+        print(f"Generating {DELTA_CUSTOMER_COUNT} customer delta rows for ingest_date={ingest_date}...")
+        subset_personas = get_daily_customer_subset()
+        rows = []
+        seq = 1
+        for persona_id in subset_personas:
             rows.append(generate_customer(seq, persona_id))
             seq += 1
+        df = pd.DataFrame(rows)
+    else:
+        print(f"Generating {NUM_CUSTOMERS} customers WITH realistic PII for ingest_date={ingest_date}...")
+        print("(This is what ABC Bank's internal customer master would look like.)\n")
 
-    df = pd.DataFrame(rows)
-    df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)
+        rows = []
+        seq = 1
+        for persona_id, count in PERSONA_DISTRIBUTION.items():
+            for _ in range(count):
+                rows.append(generate_customer(seq, persona_id))
+                seq += 1
 
-    parquet_path = OUTPUT_DIR / "customers.parquet"
+        df = pd.DataFrame(rows)
+        df = df.sample(frac=1, random_state=SEED).reset_index(drop=True)
+
+    partition_dir = OUTPUT_DIR / "customers" / f"ingest_date={ingest_date}"
+    partition_dir.mkdir(parents=True, exist_ok=True)
+    parquet_path = partition_dir / "customers.parquet"
     csv_path = OUTPUT_DIR / "customers.csv"
     df.to_parquet(parquet_path, index=False, coerce_timestamps='us')
     df.to_csv(csv_path, index=False)

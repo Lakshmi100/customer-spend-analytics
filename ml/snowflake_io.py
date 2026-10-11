@@ -15,24 +15,15 @@ import os
 from pathlib import Path
 
 import pandas as pd
-import snowflake.connector
 from dotenv import load_dotenv
 
 load_dotenv()
 
 
 def get_connection():
-    """Snowflake connection using DBT_ROLE / DBT_WH (read-only on RAW, full on MARTS)."""
-    return snowflake.connector.connect(
-        account=os.getenv("SNOWFLAKE_ACCOUNT"),
-        user=os.getenv("SNOWFLAKE_USER"),
-        password=os.getenv("SNOWFLAKE_PASSWORD"),
-        warehouse=os.getenv("SNOWFLAKE_DBT_WAREHOUSE", "DBT_WH"),
-        role=os.getenv("SNOWFLAKE_DBT_ROLE", "DBT_ROLE"),
-        database="ABC_BANK_ANALYTICS",
-        schema="MARTS",
-    )
-
+    """Open Snowflake connection via shared key-pair auth helper."""
+    from ingestion.snowflake_auth import get_connection as _kp_connect
+    return _kp_connect()
 
 def query_snowflake(sql: str) -> pd.DataFrame:
     """Run a SQL query, return as pandas DataFrame."""

@@ -101,22 +101,41 @@ def ingest_customers(spark: SparkSession, batch_id: str) -> int:
         # Ingestion metadata
         .withColumn("ingested_at", F.current_timestamp())
         .withColumn("batch_id", F.lit(batch_id))
-        .withColumn("source_file", F.lit("customers.parquet"))
+        .withColumn("source_file", F.lit(str(raw_path)))
     )
 
     # === DROP all PII columns ===
-    cols_to_drop = [c for c in cleaned.columns if c.lower() in PII_DROP_COLUMNS]
-    cols_to_drop += ["age", "annual_income", "household_income", "zip_code", "account_number"]
+    # Includes both PII_DROP_COLUMNS (names, emails, DOB — full drops) AND
+    # PII_TOKENIZE_COLUMNS (customer_id, account_number — the raw source
+    # for their tokens; we keep only the token). Uses the sets as source
+    # of truth to prevent this class of bug: never hardcode column names
+    # that live elsewhere.
+    cols_to_drop = [
+        c for c in cleaned.columns
+        if c.lower() in PII_DROP_COLUMNS or c.lower() in PII_TOKENIZE_COLUMNS
+    ]
+    # Raw quasi-identifier columns we replaced with bands (not in the sets)
+    cols_to_drop += [
+        c for c in ["age", "annual_income", "household_income", "zip_code"]
+        if c in cleaned.columns]
     cleaned = cleaned.drop(*cols_to_drop)
 
     final_columns = set(cleaned.columns)
     print(f"\n  ✓ Stripped {len(cols_to_drop)} PII/raw columns")
     print(f"  ✓ Output columns ({len(final_columns)}): {sorted(final_columns)}")
 
-    # === Validate: NO PII columns remain ===
-    pii_leakage = [c for c in cleaned.columns if c.lower() in PII_DROP_COLUMNS]
-    assert not pii_leakage, f"PII LEAKAGE DETECTED: {pii_leakage}"
-
+    # === Validate: NO PII columns remain (both sets) ===
+    # Defense in depth — this guard should catch any drop that got missed.
+    # A failure here means the trust boundary has a hole.
+    pii_leakage = [
+        c for c in cleaned.columns
+        if c.lower() in PII_DROP_COLUMNS or c.lower() in PII_TOKENIZE_COLUMNS
+    ]
+    assert not pii_leakage, (
+        f"PII LEAKAGE DETECTED: {pii_leakage}. "
+        f"Trust boundary compromised — investigate the drop logic."
+    )
+    
     null_tokens = cleaned.filter(F.col("customer_token").isNull()).count()
     assert null_tokens == 0, f"{null_tokens} rows have null customer_token"
 
@@ -158,6 +177,7 @@ def ingest_transactions(spark: SparkSession, batch_id: str) -> int:
     raw_count = df.count()
     print(f"  Raw rows: {raw_count:,}")
 
+    # Add ingestion metadata, partitioning columns, and type conversions
     cleaned = (
         df
         .withColumn("year_month", F.date_format(F.col("transaction_date"), "yyyy-MM"))
@@ -166,15 +186,39 @@ def ingest_transactions(spark: SparkSession, batch_id: str) -> int:
         .withColumn("amount", F.col("amount").cast(DoubleType()))
         .withColumn("ingested_at", F.current_timestamp())
         .withColumn("batch_id", F.lit(batch_id))
-        .withColumn("source_file", F.lit("transactions.parquet"))
+        .withColumn("source_file", F.lit(str(raw_path)))
     )
+    
+    print(f"  v Enriched dataframe with metadata and partitioning columns")
 
     bad_amounts = cleaned.filter(F.col("amount") <= 0).count()
     assert bad_amounts == 0, f"{bad_amounts} transactions with non-positive amount"
 
     null_tokens = cleaned.filter(F.col("customer_token").isNull()).count()
     assert null_tokens == 0, f"{null_tokens} transactions with null customer_token"
+    
+    # === DROP all PII columns (SAME PATTERN AS ingest_customers) ===
+    # Raw transactions has customer_id (raw PII) alongside customer_token.
+    # We only want the token downstream.
+    cols_to_drop = [
+        c for c in cleaned.columns
+        if c.lower() in PII_DROP_COLUMNS or c.lower() in PII_TOKENIZE_COLUMNS
+    ]
+    if cols_to_drop:
+        cleaned = cleaned.drop(*cols_to_drop)
+        print(f"  ✓ Stripped {len(cols_to_drop)} PII/raw columns: {cols_to_drop}")
 
+    # === Validate: NO PII columns remain ===
+    pii_leakage = [
+        c for c in cleaned.columns
+        if c.lower() in PII_DROP_COLUMNS or c.lower() in PII_TOKENIZE_COLUMNS
+    ]
+    assert not pii_leakage, (
+        f"PII LEAKAGE DETECTED in transactions: {pii_leakage}. "
+        f"Trust boundary compromised — investigate the drop logic."
+    )
+
+    #write partitioned by year_month
     out_path = PROCESSED_DIR / "transactions"
     (
         cleaned

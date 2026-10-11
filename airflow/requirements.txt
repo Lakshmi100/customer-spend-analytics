@@ -15,7 +15,11 @@ joblib~=1.4
 # Utilities
 python-dotenv~=1.0
 faker~=30.0
+# PySpark for local ingestion job
+# Note: production version of this pipeline runs Spark on EMR Serverless
+# (see infra/aws/spark_jobs/tokenize_and_partition.py); this local install
+# is for daily development and interview practice.
+pyspark==3.5.0
 
-# Note: We deliberately DON'T install pyspark in the Airflow image.
 # In production, the spark_ingestion task would use SparkSubmitOperator
 # pointing at a real Spark cluster (EMR / Databricks / etc).

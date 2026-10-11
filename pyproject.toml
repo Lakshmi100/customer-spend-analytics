@@ -1,0 +1,32 @@
+[project]
+name = "customer-spend-analytics"
+version = "1.0.0"
+description = "Customer Spend Analytics — Digital Coupon Engine (bank-merchant analytics pipeline)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-ra --strict-markers"
+markers = [
+    "slow: tests that spin up a local SparkSession (deselect with '-m \"not slow\"')",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.coverage.run]
+source = [
+    "data_generation",
+    "ingestion",
+    "ml",
+    "api",
+]
+omit = [
+    "*/artifacts/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+skip_empty = true
+show_missing = true

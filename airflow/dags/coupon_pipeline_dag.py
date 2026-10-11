@@ -35,6 +35,7 @@ from airflow.operators.python import PythonOperator
 
 # Project root inside the container (mounted in docker-compose.yml)
 PROJECT_ROOT = "/opt/project"
+INGEST_DATE_TEMPLATE = "{{ dag_run.conf.get('ingest_date') or ds }}"
 
 # Default args inherited by every task in the DAG
 DEFAULT_ARGS = {
@@ -53,12 +54,18 @@ def _print_pipeline_summary(**context):
     this would post to Slack, write a status file, etc.
     """
     print("=" * 60)
+    ingest_date = (
+        (context.get("dag_run") and context["dag_run"].conf.get("ingest_date"))
+        or context.get("ds")
+        or datetime.utcnow().date().isoformat()
+    )
     print(f"✓ Pipeline completed at {datetime.utcnow().isoformat()}Z")
     print(f"  Run ID:        {context['run_id']}")
     print(f"  Logical date:  {context['logical_date']}")
+    print(f"  Ingest date:   {ingest_date}")
     print("=" * 60)
     print("Stages executed:")
-    print("  1. Synthetic data refreshed")
+    print("  1. Synthetic data refreshed for ingest_date")
     print("  2. PySpark ingestion + PII tokenization")
     print("  3. Snowflake RAW tables loaded")
     print("  4. dbt build (49 tests passing)")
@@ -90,10 +97,15 @@ with DAG(
         task_id="generate_data",
         bash_command=(
             f"cd {PROJECT_ROOT} && "
+            f"export INGEST_DATE='{INGEST_DATE_TEMPLATE}' && "
+            f"echo \"Running daily delta for ingest_date=$INGEST_DATE\" && "
             f"python data_generation/generate_customers.py && "
             f"python data_generation/generate_transactions.py"
         ),
-        doc_md="Regenerates synthetic customers (1k) and transactions (~1.6M).",
+        doc_md=(
+            "Regenerates the synthetic data set for the target ingest_date. "
+            "The date is passed via Airflow conf as ingest_date or ds."
+        ),
     )
 
     # ========================================================================
@@ -102,8 +114,13 @@ with DAG(
     # ========================================================================
     spark_ingestion = BashOperator(
         task_id="spark_ingestion",
-        bash_command=f"cd {PROJECT_ROOT} && python ingestion/spark_ingestion.py",
-        doc_md="Tokenizes PII, k-anonymizes demographics, partitions by year_month.",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            f"export INGEST_DATE='{INGEST_DATE_TEMPLATE}' && "
+            f"echo \"Processing daily delta for ingest_date=$INGEST_DATE\" && "
+            f"python ingestion/spark_ingestion.py"
+        ),
+        doc_md="Tokenizes PII, k-anonymizes demographics, partitions by year_month for the target ingest_date.",
     )
 
     # ========================================================================
@@ -112,8 +129,13 @@ with DAG(
     # ========================================================================
     snowflake_load = BashOperator(
         task_id="snowflake_load",
-        bash_command=f"cd {PROJECT_ROOT} && python ingestion/snowflake_loader.py",
-        doc_md="Uploads parquet to Snowflake stage, runs COPY INTO RAW tables.",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            f"export INGEST_DATE='{INGEST_DATE_TEMPLATE}' && "
+            f"echo \"Loading Snowflake RAW for ingest_date=$INGEST_DATE\" && "
+            f"python ingestion/snowflake_loader.py"
+        ),
+        doc_md="Uploads parquet to Snowflake stage and loads only the target ingest_date set into RAW tables.",
     )
 
     # ========================================================================
@@ -123,11 +145,13 @@ with DAG(
         task_id="dbt_build",
         bash_command=(
             f"cd {PROJECT_ROOT}/coupon_analytics && "
+            f"export INGEST_DATE='{INGEST_DATE_TEMPLATE}' && "
+            f"echo \"Running dbt build for ingest_date=$INGEST_DATE\" && "
             f"dbt build --profiles-dir /opt/project/coupon_analytics/profiles"
         ),
         doc_md=(
             "Runs all 8 dbt models (staging → intermediate → marts) "
-            "AND all 49 data tests. Fails the DAG on any test failure."
+            "AND all 49 data tests for the active ingest_date."
         ),
     )
 
@@ -136,8 +160,13 @@ with DAG(
     # ========================================================================
     ml_features = BashOperator(
         task_id="ml_features",
-        bash_command=f"cd {PROJECT_ROOT} && python -m ml.features",
-        doc_md="Pulls customer_360, scales features, saves artifacts.",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            f"export INGEST_DATE='{INGEST_DATE_TEMPLATE}' && "
+            f"echo \"Running feature engineering for ingest_date=$INGEST_DATE\" && "
+            f"python -m ml.features"
+        ),
+        doc_md="Pulls the active customer_360 snapshot, scales features, and saves artifacts for the target ingest_date.",
     )
 
     # ========================================================================
@@ -145,8 +174,13 @@ with DAG(
     # ========================================================================
     ml_segmentation = BashOperator(
         task_id="ml_segmentation",
-        bash_command=f"cd {PROJECT_ROOT} && python -m ml.segmentation",
-        doc_md="Fits KMeans, profiles clusters, saves model + assignments.",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            f"export INGEST_DATE='{INGEST_DATE_TEMPLATE}' && "
+            f"echo \"Running segmentation for ingest_date=$INGEST_DATE\" && "
+            f"python -m ml.segmentation"
+        ),
+        doc_md="Fits KMeans and profiles clusters for the active data slice.",
     )
 
     # ========================================================================
@@ -154,8 +188,13 @@ with DAG(
     # ========================================================================
     ml_rank_coupons = BashOperator(
         task_id="ml_rank_coupons",
-        bash_command=f"cd {PROJECT_ROOT} && python -m ml.coupon_ranker",
-        doc_md="Scores all customer×coupon pairs, persists top-3 per customer.",
+        bash_command=(
+            f"cd {PROJECT_ROOT} && "
+            f"export INGEST_DATE='{INGEST_DATE_TEMPLATE}' && "
+            f"echo \"Running coupon ranking for ingest_date=$INGEST_DATE\" && "
+            f"python -m ml.coupon_ranker"
+        ),
+        doc_md="Scores active customer×coupon pairs and persists the top recommendations for the target ingest_date.",
     )
 
     # ========================================================================

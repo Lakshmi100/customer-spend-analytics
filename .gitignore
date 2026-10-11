@@ -74,3 +74,9 @@ csa_service_key.pub
 *.tfstate
 *.tfstate.backup
 .terraform.lock.hcl
+coupon_analytics/profiles/
+
+BUGS_TO_FIX.md
+
+# Terraform Lambda build artifacts
+**/.build/

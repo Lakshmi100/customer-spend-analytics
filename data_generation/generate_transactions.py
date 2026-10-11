@@ -35,7 +35,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from personas import PERSONAS, CATEGORIES, get_persona
+try:
+    from .personas import PERSONAS, CATEGORIES, get_persona
+except ImportError:  # pragma: no cover - supports running as a standalone script
+    from personas import PERSONAS, CATEGORIES, get_persona
 
 SEED = 42
 random.seed(SEED)
@@ -43,6 +46,9 @@ np.random.seed(SEED)
 
 OUTPUT_DIR = Path("data/raw")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+DELTA_TRANSACTION_COUNT = 50
+DELTA_CUSTOMER_COUNT = 5
 
 MONTHS_OF_HISTORY = 24
 END_DATE = date.today().replace(day=1)
@@ -256,49 +262,113 @@ def _make_txn(customer: dict, persona, category: str, txn_date: date, seq: int, 
     }
 
 
-def main():
-    customers_path = OUTPUT_DIR / "customers.parquet"
-    if not customers_path.exists():
-        raise FileNotFoundError(
-            f"Run generate_customers.py first — {customers_path} not found"
-        )
+def get_ingest_date() -> str:
+    value = os.getenv("INGEST_DATE") or date.today().isoformat()
+    try:
+        date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(f"INGEST_DATE must be a valid YYYY-MM-DD value: {value!r}") from exc
+    return value
 
+
+def resolve_customers_path(ingest_date: str) -> Path:
+    candidates = [
+        OUTPUT_DIR / "customers" / f"ingest_date={ingest_date}" / "customers.parquet",
+        OUTPUT_DIR / "customers.parquet",
+        OUTPUT_DIR / "customers" / "customers.parquet",
+    ]
+    for path in candidates:
+        if path.exists():
+            return path
+    raise FileNotFoundError(
+        "Run generate_customers.py first — no customers parquet was found in the expected daily-delta or legacy locations."
+    )
+
+
+def main():
+    ingest_date = get_ingest_date()
+    customers_path = resolve_customers_path(ingest_date)
     customers_df = pd.read_parquet(customers_path)
-    print(f"Loaded {len(customers_df)} customers")
-    print(f"Generating {MONTHS_OF_HISTORY} months of transactions "
-          f"({START_DATE} to {END_DATE})...")
+    print(f"Loaded {len(customers_df)} customers from {customers_path}")
+    print(f"Generating transactions for ingest_date={ingest_date}")
 
     all_rows = []
     txn_seq = 1
 
-    # Iterate month by month
-    current = START_DATE
-    while current < END_DATE:
-        month_rows = []
-        for _, customer in customers_df.iterrows():
+    # Daily delta behavior: only a small batch of customer rows and a 50-row
+    # transaction sample for the selected ingest_date. The full-data path is kept
+    # as the default when INGEST_DATE is not set.
+    if os.getenv("INGEST_DATE"):
+        selected_customers = customers_df.head(DELTA_CUSTOMER_COUNT).copy()
+        for _, customer in selected_customers.iterrows():
             if not customer["is_active"]:
                 continue
             customer_dict = customer.to_dict()
-            month_rows.extend(
-                generate_month_transactions(customer_dict, current.year, current.month, txn_seq)
-            )
-            txn_seq += 200  # spacing to keep IDs unique
+            for _ in range(DELTA_TRANSACTION_COUNT // DELTA_CUSTOMER_COUNT):
+                category = pick_category(get_persona(customer_dict["persona_id"]))
+                merchant = pick_merchant(category)
+                amount = amount_for_category(category, get_persona(customer_dict["persona_id"]))
+                txn_date = date.fromisoformat(ingest_date)
+                txn_ts = datetime.combine(txn_date, datetime.min.time()).replace(
+                    hour=random.randint(8, 21), minute=random.randint(0, 59)
+                )
+                all_rows.append({
+                    "transaction_id": f"TXN-{ingest_date.replace('-', '')}-{txn_seq:07d}",
+                    "customer_id": customer_dict["customer_id"],
+                    "customer_token": customer_dict["customer_token"],
+                    "transaction_date": txn_date,
+                    "transaction_ts": txn_ts,
+                    "amount": round(amount, 2),
+                    "category": category,
+                    "merchant_id": f"M-{abs(hash(merchant)) % 100000:05d}",
+                    "merchant_name": merchant,
+                    "channel": random.choices(["online", "in_store"], weights=[0.6, 0.4])[0],
+                    "payment_method": random.choices(["debit", "credit"], weights=[0.45, 0.55])[0],
+                    "is_recurring": False,
+                    "state": customer_dict.get("state", "CA"),
+                    "txn_status": "posted",
+                    "year_month": ingest_date[:7],
+                    "transaction_year": int(ingest_date[:4]),
+                    "transaction_month": int(ingest_date[5:7]),
+                    "ingested_at": datetime.utcnow(),
+                    "batch_id": f"daily_delta_{ingest_date}",
+                    "source_file": str(customers_path),
+                })
+                txn_seq += 1
 
-        all_rows.extend(month_rows)
-        print(f"  {current:%Y-%m}: {len(month_rows):>7,} transactions  "
-              f"(running total: {len(all_rows):>9,})")
+        df = pd.DataFrame(all_rows)
+        print(f"\n✓ Total: {len(df):,} daily-delta transactions")
+    else:
+        # Iterate month by month
+        current = START_DATE
+        while current < END_DATE:
+            month_rows = []
+            for _, customer in customers_df.iterrows():
+                if not customer["is_active"]:
+                    continue
+                customer_dict = customer.to_dict()
+                month_rows.extend(
+                    generate_month_transactions(customer_dict, current.year, current.month, txn_seq)
+                )
+                txn_seq += 200  # spacing to keep IDs unique
 
-        # Move to next month
-        if current.month == 12:
-            current = date(current.year + 1, 1, 1)
-        else:
-            current = date(current.year, current.month + 1, 1)
+            all_rows.extend(month_rows)
+            print(f"  {current:%Y-%m}: {len(month_rows):>7,} transactions  "
+                  f"(running total: {len(all_rows):>9,})")
 
-    df = pd.DataFrame(all_rows)
-    print(f"\n✓ Total: {len(df):,} transactions")
+            # Move to next month
+            if current.month == 12:
+                current = date(current.year + 1, 1, 1)
+            else:
+                current = date(current.year, current.month + 1, 1)
 
-    # Write parquet (full) and CSV sample (10K rows for inspection)
-    parquet_path = OUTPUT_DIR / "transactions.parquet"
+        df = pd.DataFrame(all_rows)
+        print(f"\n✓ Total: {len(df):,} transactions")
+
+    # Write parquet (daily-delta partition when INGEST_DATE is set, else legacy full file)
+    partition_dir = OUTPUT_DIR / "transactions" / f"ingest_date={ingest_date}"
+    partition_dir.mkdir(parents=True, exist_ok=True)
+    parquet_path = partition_dir / "transactions.parquet"
     csv_sample_path = OUTPUT_DIR / "transactions_sample.csv"
     df.to_parquet(parquet_path, index=False, coerce_timestamps='us')
     df.sample(min(10000, len(df)), random_state=SEED).to_csv(csv_sample_path, index=False)
